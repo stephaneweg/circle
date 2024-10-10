@@ -49,6 +49,7 @@ $RECYCLE.BIN/
 # Object files
 *.elf
 *.o
+*.bak
 *.ko
 *.lo
 *.obj
