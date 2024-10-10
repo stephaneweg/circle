@@ -1,0 +1,10 @@
+extern "C" void gui_init (u32*,u64,u64);
+extern "C" void gui_setl_fb (u32*);
+extern "C" s64 gui_mouse_update(s64,s64,s64,s64,s64,s64);
+extern "C" s64 gui_keypress(char c);
+extern "C" s64 gui_redraw(void);
+extern "C" void kwrite(char const *);
+extern "C" void kwriteline(char const *);
+extern "C" void vm_taskscheduler_run(void);
+extern "C" void vm_init(void);
+extern "C" void vm_services_init(void);

@@ -1,0 +1,34 @@
+#
+# Makefile
+#
+
+CIRCLEHOME = ../..
+FBCFLAGS_APPS = -nodeflibs -lang fb -arch aarch64 -Wc -march=armv8-a -buildprefix aarch64-none-elf-
+OBJS		= main.o system.o services.o runtime.o memcpy.o
+APPS	= sample.bin test.bin
+LIBS	= $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+	  $(CIRCLEHOME)/lib/usb/libusb.a \
+	  $(CIRCLEHOME)/lib/input/libinput.a \
+	  $(CIRCLEHOME)/lib/fs/libfs.a \
+	  $(CIRCLEHOME)/lib/libcircle.a
+ 
+
+
+include ../Rules.mk
+
+cleanapps:
+	rm apps/*.o apps/*.bin apps/*.elf
+
+apps: sample.bin test.bin
+
+test.bin:
+	fasm apps/test.asm apps/test.bin
+	
+sample.bin:
+	$(AS) $(AFLAGS) -c -o apps/appheader.o apps/appheader.S 
+	$(FBC) -c $(FBCFLAGS_APPS) apps/sample.bas -o apps/sample.o
+	$(LD) -T app_link.ld -o apps/sample.elf -O2 -nostdlib apps/appheader.o apps/sample.o -Map apps/sample.map
+	$(PREFIX)objcopy apps/sample.elf -O binary apps/sample.bin
+	
+-include $(DEPS)
+

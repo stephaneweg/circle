@@ -70,7 +70,7 @@ CPageTable::CPageTable (u32 nMemSize)
 		}
 		else if (nBaseAddress < nMemSize)
 		{
-			nAttributes = ARMV6MMUL1SECTION_NORMAL_XN;
+			nAttributes = ARMV6MMUL1SECTION_NORMAL;
 		}
 		else if (nBaseAddress < MEM_TOTAL_END)
 		{
@@ -164,7 +164,7 @@ u64 *CPageTable::CreateLevel2Table (u64 nBaseAddress)
 		extern u8 _etext;
 		if (nBaseAddress >= (u64) &_etext)
 		{
-			pDesc->PXN = 1;
+			pDesc->PXN = 0;
 
 			if (   (   nBaseAddress >= m_nMemSize
 			        && nBaseAddress < MEM_HIGHMEM_START)

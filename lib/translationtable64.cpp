@@ -125,13 +125,13 @@ TARMV8MMU_LEVEL3_DESCRIPTOR *CTranslationTable::CreateLevel3Table (uintptr nBase
 		pDesc->Reserved0_2   = 0;
 		pDesc->Continous     = 0;
 		pDesc->PXN	     = 0;
-		pDesc->UXN	     = 1;
+		pDesc->UXN	     = 0;
 		pDesc->Ignored	     = 0;
 
 		extern u8 _etext;
 		if (nBaseAddress >= (u64) &_etext)
 		{
-			pDesc->PXN = 1;
+			pDesc->PXN = 0;
 
 #if RASPPI >= 4
 			if (   (   nBaseAddress >= m_nMemSize

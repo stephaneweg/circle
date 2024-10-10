@@ -34,6 +34,10 @@ RASPPI	 ?= 1
 PREFIX	 ?= arm-none-eabi-
 PREFIX64 ?= aarch64-none-elf-
 
+FBC = fbc
+FBCFLAGS = -nodeflibs -lang fb -arch aarch64 -Wc -march=armv8-a -Wc -falign-functions=16 -buildprefix aarch64-none-elf- 
+
+
 # see: doc/stdlib-support.txt
 ifneq ($(strip $(CLANG)),1)
 STDLIB_SUPPORT ?= 1
@@ -204,6 +208,10 @@ endif
 	@echo "  CC    $@"
 	@$(CC) $(CFLAGS) -std=gnu99 -c -o $@ $<
 
+%.o: %.bas
+	@echo "  FBC    $@"
+	$(FBC) -c $(FBCFLAGS) $^ -o $@
+	
 %.o: %.cpp
 	@echo "  CPP   $@"
 	@$(CPP) $(CPPFLAGS) -c -o $@ $<
