@@ -1,0 +1,1 @@
+declare sub runtime_init cdecl alias "runtime_init"()

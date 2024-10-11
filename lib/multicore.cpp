@@ -111,7 +111,7 @@ boolean CMultiCoreSupport::Initialize (void)
 		CleanDataCache ();
 #endif
 
-		nTimeout = 500;
+		nTimeout = 5000;
 		do
 		{
 			asm volatile ("sev");
