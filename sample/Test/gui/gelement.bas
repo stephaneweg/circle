@@ -29,8 +29,8 @@ constructor GUI_ELEMENT(l as integer,t as integer,w as integer,h as integer)
 	OnLostFocusMethod   = 0
 	DrawMethod          = 0
 	HandleMouseMethod   = 0
-	DestroyMethod       = cptr(any ptr,@GUI_ELEMENT_DESTROY)
-    VisitMethod         = cptr(any ptr,@GUI_ELEMENT_VISIT)
+	'DestroyMethod       = cptr(any ptr,@GUI_ELEMENT_DESTROY)
+    'VisitMethod         = cptr(any ptr,@GUI_ELEMENT_VISIT)
     CanTakeAutoFocus    = 0
     
 	this.CreateBuffer()

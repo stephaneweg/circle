@@ -38,9 +38,7 @@ sub VM_SERVICES_INIT cdecl alias "vm_services_init"()
 	
 	
 	
-    VM_MANAGER_APP_START(@"SD:/apps/calc.bin")
-    VM_MANAGER_APP_START(@"SD:/apps/tetris.bin")
-    VM_MANAGER_APP_START(@"SD:/apps/shelf.bin")
+    VM_MANAGER_APP_START(@"SD:/apps/demo.bin")
 end sub
 
 

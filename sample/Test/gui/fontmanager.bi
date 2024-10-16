@@ -8,4 +8,4 @@ Type TFontManager
 	
 end Type
 
-dim shared FontManager as TFontManager
+declare function GetFontManager() as TFontManager ptr

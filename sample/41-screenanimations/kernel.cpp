@@ -20,7 +20,7 @@
 #include "kernel.h"
 
 CKernel::CKernel (void)
-: m_2DGraphics(m_Options.GetWidth (), m_Options.GetHeight ())
+: m_2DGraphics(m_Options.GetWidth (), m_Options.GetHeight (),true)
 {
 	m_ActLED.Blink (5);
 }

@@ -4,7 +4,9 @@
 
 CIRCLEHOME = ../..
 
-OBJS	= main.o kernel.o system.o runtime.o gui/gui.o
+OBJS	= main.o kernel.o system.o runtime.o gui/gui.o arch/stdlib.o
+
+EXTRACLEAN = gui/gui.o gui/*.bak *.bak arch/*.o asm/*.o game/*/*.o
 
 LIBS	= $(CIRCLEHOME)/addon/fatfs/libfatfs.a \
 	  $(CIRCLEHOME)/addon/SDCard/libsdcard.a \

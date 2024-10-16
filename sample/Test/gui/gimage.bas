@@ -30,8 +30,6 @@ sub GImage.CreateBuffer()
             this.BufferSize = 0
 		end if
         
-       'dim pagesCount	as unsigned integer =  ((newsize + 4095) and -4096) shr 12
-       'newsize = pagesCount shl 12
        this.Buffer = allocate(newSize)
        this.BufferSize = newSize
     end if
@@ -40,7 +38,7 @@ end sub
 
 sub GImage.Clear(c as unsigned long)
 	if (this.Buffer=0) then exit sub
-	this.FillRectangle(0,0,this.Width-1,this.Height-1,c)
+	MemSet32(this.Buffer,c,this.Width*this.Height)
 end sub
 
 sub GImage.SetPixel(_x as integer,_y as integer,c as unsigned long)
@@ -228,9 +226,7 @@ sub GImage.FillRectangle(x1 as integer,y1 as integer,x2 as integer,y2 as integer
 	
 	for _yy as unsigned integer = 1 to sh
 		var addr2 = cptr(unsigned long ptr, addr)
-		for _xx as unsigned integer = 0 to sw-1
-			addr2[_xx]=c
-		next
+		MemSet32(addr2,c,sw)
 		addr+=bpl
 	next 
 	
@@ -397,15 +393,7 @@ sub GImage.PutOther(src as GImage ptr,x as integer,y as integer,transparent as i
             memcpyarch(addrD,addrS,sw shl 2)
             srcAddr+=srcWidth
             dstAddr+=dstWidth
-        next
-     '   for ny = 0 to sh
-     '       BufferToBuffer(this.Buffer+(doffset*4),src->Buffer+(soffset*4),sw+1,4,4)
-            'for nx = 0 to sw
-            '    this.Buffer[doffset + nx] = src->Buffer[soffset+nx]
-            'next
-     '       soffset+=src->Width
-     '       doffset+=this.Width
-     '   next 
+        next 
     end if
 end sub
 
@@ -482,9 +470,6 @@ sub GImage.PutOtherPart(src as GImage ptr,x as integer,y as integer,sourceX as i
 	for _yy as integer = 1 to sh
 		var addrS = cptr(unsigned long ptr,srcAddr)
 		var addrD = cptr(unsigned long ptr,dstAddr)
-		'for _xx as integer =0 to sw-1
-		'	addrD[_xx]=addrS[_xx]
-		'next
 		memcpyarch(addrD,addrS,sw shl 2)
 		srcAddr+=srcWidth
 		dstAddr+=dstWidth
@@ -615,7 +600,6 @@ Function GImage.LoadFromBitmapBuffer(buffer as unsigned byte ptr,fsize as unsign
 end function
 
 Function GImage.LoadFromBitmap(path as unsigned byte ptr) as GImage ptr
-
     dim fsize as long
     dim buffer as unsigned byte ptr = VFS_LOAD_FILE(path,@fsize)
     if (buffer<>0 and fsize<>0) then

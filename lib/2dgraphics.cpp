@@ -365,7 +365,9 @@ void C2DGraphics::UpdateDisplay()
 	if(m_bVSync)
 	{
 		m_pFrameBuffer->SetVirtualOffset(0, m_bBufferSwapped ? m_nHeight : 0);
+	
 		m_pFrameBuffer->WaitForVerticalSync();
+	
 		m_bBufferSwapped = !m_bBufferSwapped;
 		m_Buffer = m_baseBuffer + m_bBufferSwapped * m_nWidth * m_nHeight;
 	}

@@ -7,7 +7,7 @@ PREFIX64 ?= aarch64-none-elf-
 TARGET = armstub7-rpi4
 TARGET64 = armstub8-rpi4
 
-all: $(TARGET).bin $(TARGET64).bin
+all: $(TARGET64).bin
 
 $(TARGET).bin: armstub7.S
 	$(PREFIX)gcc -march=armv7-a -DGIC=1 -DBCM2710=1 -DBCM2711=1 -o $(TARGET).o -c armstub7.S

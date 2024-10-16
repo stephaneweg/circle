@@ -16,7 +16,7 @@ constructor GUI_WINDOW(l as integer,t as integer,w as integer,h as integer,_titl
 	DragStartY = 0
 	DrawMethod			= cptr(any ptr,@GUI_WINDOW_DRAW)
 	HandleMouseMethod	= cptr(any ptr,@GUI_WINDOW_HANDLE_MOUSE)
-	DestroyMethod		= cptr(any ptr,@GUI_WINDOW_DESTROY)
+	'DestroyMethod		= cptr(any ptr,@GUI_WINDOW_DESTROY)
     CloseButton          = 0
     if (WindowSkin<>0) then
         PaddingLeft = WindowSkin->LeftWidth

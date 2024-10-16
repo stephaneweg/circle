@@ -214,7 +214,8 @@ public:
 	/// \param nIndex Index of the rotor to be displayed (0..3)
 	/// \param nCount Phase (angle) of the current rotor symbol (0..3)
 	void Rotor (unsigned nIndex, unsigned nCount);
-
+	
+	void NewLine (void);
 private:
 #ifndef SCREEN_HEADLESS
 	void Write (char chChar);
@@ -236,7 +237,6 @@ private:
 	TScreenColor GetTextColor (void);
 	void InsertLines (unsigned nCount);
 	void InsertMode (boolean bBegin);
-	void NewLine (void);
 	void ReverseScroll (void);
 	void SetCursorMode (boolean bVisible);
 	void SetScrollRegion (unsigned nStartRow, unsigned nEndRow);

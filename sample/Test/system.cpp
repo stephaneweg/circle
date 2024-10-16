@@ -8,29 +8,17 @@
 
 extern "C" void kwrite(const char* txt)
 {
-	KernelInstance->kwriteText(txt);
+	KernelInstance->k_write(txt);
 }
 
 extern "C" void knewline()
 {
-	KernelInstance->kwriteText("\n");
+	KernelInstance->k_write("\n");
 }
 
 extern "C" void kwriteLine(const char* txt)
 {
-	kwrite(txt);
-	knewline();
-}
-
-extern "C" void kwriteFormatLine(const char* txt,...)
-{	
-	va_list var;
-	va_start (var, txt);
-
-	kwriteFormatV (txt, var);
-
-	va_end (var);
-	knewline();
+	KernelInstance->k_writeLine(txt);
 }
 
 
@@ -45,10 +33,25 @@ extern "C" void kwriteFormat(const char* txt,...)
 	va_end (var);
 }
 
+extern "C" void kwriteFormatLine(const char* txt,...)
+{	
+	va_list var;
+	va_start (var, txt);
+
+	kwriteFormatVLine (txt, var);
+
+	va_end (var);
+}
+
 
 extern "C" void kwriteFormatV(const char* txt,va_list args)
 {
-	KernelInstance->kwriteFormatV(txt,args);
+	KernelInstance->k_writeFormatV(txt,args);
+}
+
+extern "C" void kwriteFormatVLine(const char* txt,va_list args)
+{
+	KernelInstance->k_writeFormatVLine(txt,args);
 }
 
 static const char FromServices[] = "Services";
@@ -120,4 +123,93 @@ extern "C" u32 get_random(u32 min,u32 max)
 	CBcmRandomNumberGenerator _random;
 	
 	return (_random.GetNumber() % diff) + min;
+}
+
+extern "C" void sys_lock_gui()
+{
+	//KernelInstance->LockGui();
+}
+
+extern "C" void sys_unlock_gui()
+{
+	//KernelInstance->UnlockGui();
+}
+
+extern "C" s32 get_joypad_axis(u32 gamepad,u32 axis)
+{
+	return KernelInstance->get_joypad_axis(gamepad,axis);
+}
+
+extern "C" u32 get_joypad_buttons(u32 gamepad)
+{
+	return KernelInstance->get_joypad_buttons(gamepad);
+}
+
+
+
+extern "C" void MemSet64(u64* _dst,u64 _value,u32 _count)
+{
+	for(;_count>0;_count--,_dst++)
+	{
+		*_dst = _value;
+	}
+}
+
+extern "C" void MemSet32(u32* _dst,u32 _value,u32 _count)
+{
+	for(;_count>0;_count--,_dst++)
+	{
+		*_dst = _value;
+	}
+}
+
+extern "C" void MemSet16(u16* _dst,u16 _value,u32 _count)
+{
+	for(;_count>0;_count--,_dst++)
+	{
+		*_dst = _value;
+	}
+}
+
+extern "C" void MemSet8(u8* _dst,u8 _value,u32 _count)
+{
+	for(;_count>0;_count--,_dst++)
+	{
+		*_dst = _value;
+	}
+}
+
+
+
+extern "C" void MemCpy64(u64* _dst, u64* _src, u32 _count)
+{
+	for (;_count>0;_count--,_dst++,_src++)
+	{
+		*_dst = *_src;
+	}
+}
+
+extern "C" void MemCpy32(u32* _dst, u32* _src, u32 _count)
+{
+	for (;_count>0;_count--,_dst++,_src++)
+	{
+		*_dst = *_src;
+	}
+}
+
+
+extern "C" void MemCpy16(u16* _dst, u16* _src, u32 _count)
+{
+	for (;_count>0;_count--,_dst++,_src++)
+	{
+		*_dst = *_src;
+	}
+}
+
+extern "C" void MemCpy8(u8* _dst, u8* _src, u32 _count)
+{
+	for (;_count>0;_count--,_dst++,_src++)
+	{
+		*_dst = *_src;
+	}
 }

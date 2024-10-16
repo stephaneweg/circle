@@ -1,11 +1,11 @@
 
 #include once "stdlib.bi"
+#include once "../system.bi"
 static shared Result(0 to 2047) as unsigned byte
 static shared Result2(0 to 2047) as unsigned byte
 static shared Result3(0 to 2047) as unsigned byte
 
-  #Define floor(x) (((x)*2.0-0.5)shr 1)
-  #define ceil(x) (-((-(x)*2.0-0.5)shr 1))
+
 function StringHash(src as unsigned byte ptr,bytescount as integer) as unsigned longint
     dim p as  unsigned longint = 255'31
     dim m as  unsigned longint =-1' 1e9+9
@@ -413,77 +413,13 @@ function UIntToStr (number as unsigned longint,abase as unsigned integer) as uns
     return dst
 end function
 
-sub MemSet64(_dst as unsigned longint ptr,_value as unsigned longint,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_value
-	next
-end sub
-	
-sub MemSet32(_dst as unsigned long ptr,_value as unsigned long,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_value
-	next
-end sub
 
-sub MemSet16(_dst as unsigned short ptr,_value as unsigned short,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_value
-	next
-end sub
-
-sub MemSet(_dst as unsigned byte ptr,_value as unsigned byte,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_value
-	next
-end sub
-
-sub MemCpyARCH(_dst as any ptr,_src as any ptr,_count as unsigned integer)
+sub MemCpyARCH cdecl alias "MemCpyARCH"(_dst as any ptr,_src as any ptr,_count as unsigned long)
     
     dim asrc as any ptr = _src
     dim adst as any ptr = _dst
     dim remainder as unsigned integer = _count
     
-	'if (remainder>=8) then
-    '    dim c as unsigned integer = cuint(_dst)-((cuint(_dst) shr 3) shl 3)
-	'	if (c > 0) then
-	'		Memcpy8(adst,asrc,c)
-	'		remainder-=c
-	'		asrc = cptr(any ptr,cuint(asrc)+c)
-	'		adst = cptr(any ptr,cuint(adst)+c)
-	'	end if
-	'end if
-	'if (remainder>=4) then
-    '    dim c as unsigned integer = cuint(_dst)-((cuint(_dst) shr 2) shl 2)
-	'	if (c > 0) then
-	'		Memcpy8(adst,asrc,c)
-	'		remainder-=c
-	'		asrc = cptr(any ptr,cuint(asrc)+c)
-	'		adst = cptr(any ptr,cuint(adst)+c)
-	'	end if
-	'end if
-	'if (remainder>=2) then
-    '    dim c as unsigned integer = cuint(_dst)-((cuint(_dst) shr 1) shl 1)
-	'	if (c > 0) then
-	'		Memcpy8(adst,asrc,c)
-	'		remainder-=c
-	'		asrc = cptr(any ptr,cuint(asrc)+c)
-	'		adst = cptr(any ptr,cuint(adst)+c)
-	'	end if
-	'end if
-	
-
 	dim count64 as unsigned integer = remainder shr 3
 	if (count64>0) and ((cuint(adst) and 7)=0) and ((cuint(asrc) and 7)=0) then
 		MemCpy64(adst,asrc,count64)
@@ -516,37 +452,4 @@ sub MemCpyARCH(_dst as any ptr,_src as any ptr,_count as unsigned integer)
     end if
 end sub
 
-sub MemCpy64(_dst as unsigned longint ptr,_src as unsigned longint ptr,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_src[i]
-	next
-end sub
 
-sub MemCpy32(_dst as unsigned long ptr,_src as unsigned long ptr,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_src[i]
-	next
-end sub
-
-sub MemCpy16(_dst as unsigned short ptr,_src as unsigned short ptr,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_src[i]
-	next
-end sub
-
-
-sub MemCpy8(_dst as unsigned byte ptr,_src as unsigned byte ptr,_count as unsigned integer)
-	if (_count<0) then exit sub
-	dim _last as unsigned integer = _count-1
-	
-	for i as unsigned integer = 0 to _last
-		_dst[i]=_src[i]
-	next
-end sub

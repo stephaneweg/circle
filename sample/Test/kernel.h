@@ -34,12 +34,18 @@
 #include <circle/usb/usbhcidevice.h>
 #include <circle/usb/usbkeyboard.h>
 #include <circle/input/mouse.h>
+#include <circle/usb/usbgamepad.h>
 #include <circle/types.h>
 #include <circle/memory.h>
 #include <circle/multicore.h>
 #include <circle/spinlock.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
+
+
+#define MAX_GAMEPADS	2
+#define MAX_AXES		2
+#define MAX_BUTTONS		12
 
 enum TShutdownMode
 {
@@ -65,11 +71,19 @@ public:
 	void Run(unsigned nCore);
 	void IPIHandler(unsigned nCore,unsigned nIPI);
 	
-	void kwriteText(const char* txt);
-	void kwriteFormatV(const char* txt,va_list args);
-	void kwriteFormat(const char *txt, ...);
+	void k_write(const char* txt);
+	void k_writeFormatV(const char* txt,va_list args);
+	void k_writeFormat(const char *txt, ...);
+	
+	void k_writeLine(const char* txt);
+	void k_writeFormatVLine(const char* txt,va_list args);
+	void k_writeFormatLine(const char *txt, ...);
+	
+	void LockGui();
+	void UnlockGui();
 
-
+	s32 get_joypad_axis(u32 gamepad,u32 axis);
+	u32 get_joypad_buttons(u32 gamepad);
 	static void ShutdownHandler (void);
 private:
 	// do not change this order
@@ -87,9 +101,15 @@ private:
 	FATFS				m_FileSystem;
 	C2DGraphics			m_2DGraphics;
 	CSpinLock			m_guiSpinLock;
+	CUSBGamePadDevice * volatile m_pGamePad[MAX_GAMEPADS];
 	volatile TShutdownMode m_ShutdownMode;
 	
 	unsigned	m_guiReady;
+	unsigned	m_framecount;
+	unsigned padd_button[MAX_GAMEPADS][MAX_BUTTONS];
+	unsigned padd_button_all[MAX_GAMEPADS];
+	s32 padd_axes[MAX_GAMEPADS][MAX_AXES];
+	int padd_hats[MAX_GAMEPADS][MAX_HATS];
 private:
 	void RunCore0(void);
 	void RunCore1(void);
@@ -100,6 +120,11 @@ private:
 	void IPIHandlerCore1(unsigned nIPI);
 	void IPIHandlerCore2(unsigned nIPI);
 	void IPIHandlerCore3(unsigned nIPI);
+	
+	void detectGamePad();
+	
+	static void GamePadStatusHandler (unsigned nDeviceIndex, const TGamePadState *pState);
+	static void GamePadRemovedHandler (CDevice *pDevice, void *pContext);
 };
 
 #endif

@@ -32,15 +32,11 @@ Type BMPHeader field = 1
 end type
 
 
-TYPE GImage' extends VM_GC
+TYPE GImage field = 1'  extends VM_GC
     Width          as integer
     Height         as integer
     Buffer         as unsigned long ptr
     BufferSize      as unsigned integer
-	
-	VisitMethod as sub(gc as GImage ptr)
-    DestroyMethod as sub(gc as GImage ptr)
-	
     declare constructor()
     declare destructor()
     

@@ -1,0 +1,48 @@
+ENTRY(app_main)
+
+SECTIONS
+{
+	.text : {
+		*(.text*)
+		_etext = .;
+	}
+
+	.rodata : {
+		*(.rodata*)
+	}
+
+
+	.init_array : {
+		__init_start = .;
+
+		*(.init_array*)
+
+		__init_end = .;
+	}
+
+
+	.ARM.exidx : {
+		__exidx_start = .;
+
+		*(.ARM.exidx*)
+
+		__exid_end = .;
+	}
+
+	.eh_frame : {
+		*(.eh_frame*)
+	}
+
+	.data : {
+		*(.data*)
+	}
+
+	.bss : {
+		__bss_start = .;
+
+		*(.bss*)
+		*(COMMON)
+
+		_end = .;
+	}
+}	

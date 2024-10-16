@@ -22,14 +22,11 @@ declare function atol(s as unsigned byte ptr) as long
 declare function atolhex(s as unsigned byte ptr) as unsigned long
 declare function atof(s as unsigned byte ptr) as double
 
-declare sub MemCpyAArch64  cdecl alias "__memcpy_aarch64"(_dst as any ptr,_src as any ptr,_count as unsigned integer)
-declare sub MemCpyARCH(_dst as any ptr,_src as any ptr,_count as unsigned integer)
-declare sub MemCpy64(_dst as unsigned longint ptr,_src as unsigned longint ptr,_count as unsigned integer)
-declare sub MemCpy32(_dst as unsigned long ptr,_src as unsigned long ptr,_count as unsigned integer)
-declare sub MemCpy16(_dst as unsigned short ptr,_src as unsigned short ptr,_count as unsigned integer)
-declare sub MemCpy8(_dst as unsigned byte ptr,_src as unsigned byte ptr,_count as unsigned integer)
+declare sub MemCpyAArch64  cdecl alias "MemCpyAArch64"(_dst as any ptr,_src as any ptr,_count as unsigned long)
+declare sub MemCpyARCH cdecl alias "MemCpyARCH"(_dst as any ptr,_src as any ptr,_count as unsigned long)
+
     
-declare sub MemSet64(_dst as unsigned longint ptr,_value as unsigned longint,_count as unsigned integer)
-declare sub MemSet32(_dst as unsigned long ptr,_value as unsigned long,_count as unsigned integer)
-declare sub MemSet16(_dst as unsigned short ptr,_value as unsigned short,_count as unsigned integer)
-declare sub MemSet(_dst as unsigned byte ptr,_value as unsigned byte,_count as unsigned integer)
+
+
+#Define floor(x) (((x)*2.0-0.5)shr 1)
+#define ceil(x) (-((-(x)*2.0-0.5)shr 1))

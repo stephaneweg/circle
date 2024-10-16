@@ -18,7 +18,7 @@ constructor GUI_BUTTON(_left as integer, _top as integer,_width as integer,_heig
     'VMTAG.vType     = 0
     'VMTAG.vValue    = 0
     Skin            = ButtonSKin
-    DestroyMethod       = cptr(any ptr,@GUI_BUTTON_DESTROY)
+    'DestroyMethod       = cptr(any ptr,@GUI_BUTTON_DESTROY)
 	DrawMethod			= cptr(any ptr,@GUI_BUTTON_DRAW)
 	HandleMouseMethod	= cptr(any ptr,@GUI_BUTTON_HANDLE_MOUSE)
 end constructor

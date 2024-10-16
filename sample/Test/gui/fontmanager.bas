@@ -1,3 +1,9 @@
+dim shared FontManager as TFontManager
+
+function GetFontManager() as TFontManager ptr
+	return @FontManager
+end function
+
 sub TFontManager.Init()
     this.ML = LoadFont(@"ML")
     this.SMALL = LoadFont(@"SMALL")

@@ -132,6 +132,11 @@ size_t CString::GetLength (void) const
 	return strlen (m_pBuffer);
 }
 
+char* CString::GetBuffer()
+{
+	return m_pBuffer;
+}
+
 void CString::Append (const char *pString)
 {
 	m_nSize = 1;		// for terminating '\0'

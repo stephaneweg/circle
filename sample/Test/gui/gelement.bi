@@ -1,6 +1,6 @@
 type GUI_ELEMENT extends GIMAGE field=1
-	Left        as integer
-	Top         as integer
+	Left        as double
+	Top         as double
     Transparent as integer
 	ParentNode	as GUI_ELEMENT ptr
 	FirstNode	as GUI_ELEMENT ptr
