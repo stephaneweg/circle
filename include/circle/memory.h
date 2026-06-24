@@ -155,6 +155,11 @@ public:
 	static void *PageAllocate (void)	{ return s_pThis->m_Pager.Allocate (); }
 	static void PageFree (void *pPage)	{ s_pThis->m_Pager.Free (pPage); }
 
+	// Onyx: free space (bytes) of the page allocator region not yet handed out (freed
+	// pages on its free list are reused but not counted here). Used by the memory
+	// monitor / meminfo kapi. Header-only -> no libcircle rebuild.
+	static size_t GetPagerFreeSpace (void)	{ return s_pThis->m_Pager.GetFreeSpace (); }
+
 	static void DumpStatus (void)
 	{
 #ifdef HEAP_DEBUG
