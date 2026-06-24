@@ -85,7 +85,12 @@
 // multiple of 64. Up to 20 sizes can be defined.
 
 #ifndef HEAP_BLOCK_BUCKET_SIZES
-#define HEAP_BLOCK_BUCKET_SIZES	0x40,0x400,0x1000,0x4000,0x10000,0x40000,0x80000
+// Onyx: added the 1M/2M/4M buckets. Window canvases are large heap blocks
+// (e.g. 1024x768x4 = 3 MB); without a matching bucket they exceed the largest one
+// and are LOST on free (per the note above) -> a per-window-launch leak. With these
+// buckets a freed canvas returns to its bucket free list and is reused.
+#define HEAP_BLOCK_BUCKET_SIZES	0x40,0x400,0x1000,0x4000,0x10000,0x40000,0x80000,\
+				0x100000,0x200000,0x400000
 #endif
 
 ///////////////////////////////////////////////////////////////////////
