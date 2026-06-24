@@ -96,76 +96,20 @@ const char *CKeyMap::s_KeyStrings[KeyMaxCode-KeySpace] =
 	"."			// KeyKP_Period
 };
 
-#define C(chr)		((u16) (u8) (chr))
-
-const u16 CKeyMap::s_DefaultMap[][PHY_MAX_CODE+1][K_CTRLTAB+1] =
-{
-	{
-		#include "keymap_de.h"
-	}, {
-		#include "keymap_dv.h"
-	}, {
-		#include "keymap_es.h"
-	}, {
-		#include "keymap_fr.h"
-	}, {
-		#include "keymap_it.h"
-	}, {
-		#include "keymap_uk.h"
-	}, {
-		#include "keymap_us.h"
-	}
-};
-
-const char *CKeyMap::s_MapDirectory[] =		// same (alphabetical) order as in s_DefaultMap[]
-{
-	"DE",
-	"DV",
-	"ES",
-	"FR",
-	"IT",
-	"UK",
-	"US",
-	0
-};
-
+// Zircon: the kernel compiles in NO country maps -- keyboard layouts ship as
+// SD:/etc/keymaps/*.kmap data files and are loaded at runtime through ClearTable/SetEntry
+// (see kapi_set_keymap_data). So a fresh keymap starts empty (every entry KeyNone); the
+// kernel fills it from a .kmap as soon as the keyboard has enumerated.
 CKeyMap::CKeyMap (void)
 :	m_bCapsLock (FALSE),
 	m_bNumLock (FALSE),
 	m_bScrollLock (FALSE)
 {
-	const char *pLocale = CKernelOptions::Get ()->GetKeyMap ();
-	assert (pLocale != 0);
-
-	const void *pDefaultMap = LookupDefaultMap (pLocale);
-	if (pDefaultMap == 0)
-	{
-		pDefaultMap = LookupDefaultMap (DEFAULT_KEYMAP);
-		assert (pDefaultMap != 0);
-		if (pDefaultMap == 0)
-		{
-			pDefaultMap = s_DefaultMap[0];
-		}
-	}
-
-	assert (sizeof m_KeyMap == sizeof s_DefaultMap[0]);
-	memcpy (m_KeyMap, pDefaultMap, sizeof m_KeyMap);
+	memset (m_KeyMap, 0, sizeof m_KeyMap);		// KeyNone == 0
 }
 
 CKeyMap::~CKeyMap (void)
 {
-}
-
-// Zircon: replace the active map with another compiled-in country map at runtime.
-boolean CKeyMap::LoadMap (const char *pLocale)
-{
-	const void *pMap = LookupDefaultMap (pLocale);
-	if (pMap == 0)
-	{
-		return FALSE;
-	}
-	memcpy (m_KeyMap, pMap, sizeof m_KeyMap);
-	return TRUE;
 }
 
 boolean CKeyMap::ClearTable (u8 nTable)
@@ -347,18 +291,4 @@ u8 CKeyMap::GetLEDStatus (void) const
 	}
 
 	return nResult;
-}
-
-const void *CKeyMap::LookupDefaultMap (const char *pLocale)
-{
-	for (unsigned nMap = 0; s_MapDirectory[nMap] != 0; nMap++)
-	{
-		assert (pLocale != 0);
-		if (strcmp (s_MapDirectory[nMap], pLocale) == 0)
-		{
-			return s_DefaultMap[nMap];
-		}
-	}
-
-	return 0;
 }

@@ -130,12 +130,9 @@ public:
 
 	u8 GetLEDStatus (void) const;
 
-	// Zircon: switch to another compiled-in country map at runtime ("US","UK","DE",
-	// "FR","ES","IT","DV"). Returns FALSE if the locale is unknown.
-	boolean LoadMap (const char *pLocale);
-
-private:
-	static const void *LookupDefaultMap (const char *pLocale);
+	// Zircon: the keyboard map is empty until the kernel fills it at runtime via
+	// ClearTable/SetEntry from a SD:/etc/keymaps/*.kmap file -- no country map is
+	// compiled in (see CKeyMap::CKeyMap and kapi_set_keymap_data).
 
 private:
 	u16 m_KeyMap[PHY_MAX_CODE+1][K_CTRLTAB+1];
@@ -145,8 +142,6 @@ private:
 	boolean m_bScrollLock;
 	
 	static const char *s_KeyStrings[KeyMaxCode-KeySpace];
-	static const u16 s_DefaultMap[][PHY_MAX_CODE+1][K_CTRLTAB+1];
-	static const char *s_MapDirectory[];
 };
 
 #endif
