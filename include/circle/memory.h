@@ -159,6 +159,20 @@ public:
 	// pages on its free list are reused but not counted here). Used by the memory
 	// monitor / meminfo kapi. Header-only -> no libcircle rebuild.
 	static size_t GetPagerFreeSpace (void)	{ return s_pThis->m_Pager.GetFreeSpace (); }
+	// Onyx: + freed pages on the pager free list (reusable). Total pager free =
+	// GetPagerFreeSpace() + GetPagerFreeListSpace().
+	static size_t GetPagerFreeListSpace (void) { return s_pThis->m_Pager.GetFreeListSpace (); }
+
+	// Onyx: freed heap blocks on the bucket/large free lists (reusable). Add to
+	// GetHeapFreeSpace(HEAP_ANY) for the true free heap.
+	size_t GetHeapFreeListSpace (void) const
+	{
+#if RASPPI >= 4
+		return s_pThis->m_HeapLow.GetFreeListSpace () + s_pThis->m_HeapHigh.GetFreeListSpace ();
+#else
+		return s_pThis->m_HeapLow.GetFreeListSpace ();
+#endif
+	}
 
 	static void DumpStatus (void)
 	{

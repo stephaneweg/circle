@@ -30,7 +30,8 @@ CPageAllocator::CPageAllocator (void)
 	m_nCount (0),
 	m_nMaxCount (0),
 #endif
-	m_pFreeList (0)
+	m_pFreeList (0),
+	m_nFreeListCount (0)
 {
 }
 
@@ -47,6 +48,11 @@ void CPageAllocator::Setup (uintptr nBase, size_t nSize)
 size_t CPageAllocator::GetFreeSpace (void) const
 {
 	return m_pLimit - m_pNext;
+}
+
+size_t CPageAllocator::GetFreeListSpace (void) const	// Onyx: reusable freed pages
+{
+	return (size_t) m_nFreeListCount * PAGE_SIZE;
 }
 
 void *CPageAllocator::Allocate (void)
@@ -68,6 +74,7 @@ void *CPageAllocator::Allocate (void)
 		assert (pFreePage->nMagic == FREEPAGE_MAGIC);
 		m_pFreeList = pFreePage->pNext;
 		pFreePage->nMagic = 0;
+		m_nFreeListCount--;			// Onyx: page taken off the free list
 	}
 	else
 	{
@@ -103,6 +110,7 @@ void CPageAllocator::Free (void *pPage)
 
 	pFreePage->pNext = m_pFreeList;
 	m_pFreeList = pFreePage;
+	m_nFreeListCount++;				// Onyx: page returned to the free list
 
 #ifdef PAGE_DEBUG
 	m_nCount--;

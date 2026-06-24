@@ -89,6 +89,10 @@ public:
 	/// \note Unused blocks on a free list do not count here.
 	size_t GetFreeSpace (void) const;
 
+	/// \return Onyx: bytes of freed blocks currently on the bucket/large free lists
+	///	    (reusable). Add to GetFreeSpace() for the true total free space.
+	size_t GetFreeListSpace (void) const	{ return m_nFreeListBytes; }
+
 	/// \param nSize Block size to be allocated
 	/// \return Pointer to new allocated block (0 if heap is full or not set-up)
 	/// \note Resulting block is always 16 bytes aligned
@@ -124,6 +128,7 @@ private:
 	size_t	 	 m_nReserve;
 	THeapBlockBucket m_Bucket[HEAP_BLOCK_MAX_BUCKETS+1];
 	THeapBlockHeader *m_pLargeFreeList[HEAP_LARGE_LISTS];	// per-power-of-2 (Onyx)
+	size_t		 m_nFreeListBytes;	// Onyx: bytes on the bucket+large free lists
 	CSpinLock	 m_SpinLock;
 
 	static u32 s_nBucketSize[];

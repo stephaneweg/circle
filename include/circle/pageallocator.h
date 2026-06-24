@@ -48,6 +48,10 @@ public:
 	/// \note Unused pages on the free list do not count here.
 	size_t GetFreeSpace (void) const;
 
+	/// \return Onyx: bytes of freed pages currently on the free list (reusable). Add
+	///	    to GetFreeSpace() for the true total free space.
+	size_t GetFreeListSpace (void) const;
+
 	/// \return Pointer to a page with a size of PAGE_SIZE
 	/// \note Resulting page is always aligned to PAGE_SIZE
 	void *Allocate (void);
@@ -67,6 +71,7 @@ private:
 	unsigned	 m_nMaxCount;
 #endif
 	TFreePage	*m_pFreeList;
+	unsigned	 m_nFreeListCount;	// Onyx: pages currently on m_pFreeList
 	CSpinLock	 m_SpinLock;
 };
 

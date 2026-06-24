@@ -58,6 +58,7 @@ void CHeapAllocator::Setup (uintptr nBase, size_t nSize, size_t nReserve)
 	{
 		m_pLargeFreeList[i] = 0;
 	}
+	m_nFreeListBytes = 0;					// Onyx: reusable freed bytes
 }
 
 // Onyx: round a request too big for any bucket up to a power-of-two size class and
@@ -148,12 +149,14 @@ void *CHeapAllocator::DoAllocate (size_t nSize)
 	{
 		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
 		pBucket->pFreeList = pBlockHeader->pNext;
+		m_nFreeListBytes -= pBlockHeader->nSize;	// Onyx: off the free list
 	}
 	else if (   nLargeExp >= 0
 		 && (pBlockHeader = m_pLargeFreeList[nLargeExp]) != 0)
 	{
 		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
 		m_pLargeFreeList[nLargeExp] = pBlockHeader->pNext;
+		m_nFreeListBytes -= pBlockHeader->nSize;	// Onyx
 	}
 	else
 	{
@@ -278,6 +281,7 @@ void CHeapAllocator::DoFree (void *pBlock)
 
 			pBlockHeader->pNext = pBucket->pFreeList;
 			pBucket->pFreeList = pBlockHeader;
+			m_nFreeListBytes += pBlockHeader->nSize;	// Onyx: onto the free list
 
 #ifdef HEAP_DEBUG
 			pBucket->nCount--;
@@ -297,6 +301,7 @@ void CHeapAllocator::DoFree (void *pBlock)
 		m_SpinLock.Acquire ();
 		pBlockHeader->pNext = m_pLargeFreeList[nLargeExp];
 		m_pLargeFreeList[nLargeExp] = pBlockHeader;
+		m_nFreeListBytes += pBlockHeader->nSize;	// Onyx: reusable large block
 		m_SpinLock.Release ();
 		return;
 	}
