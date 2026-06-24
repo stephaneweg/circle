@@ -40,6 +40,12 @@ ASSERT_STATIC (DATA_CACHE_LINE_LENGTH_MAX >= 16);
 
 #define HEAP_BLOCK_MAX_BUCKETS	20
 
+// Onyx: blocks larger than the biggest bucket are rounded up to a power of two and
+// kept on a per-power free list (index = log2 of the rounded size), so large blocks
+// (window canvases, big file buffers, ...) are reused instead of lost on free. 32
+// classes cover any realistic size.
+#define HEAP_LARGE_LISTS	32
+
 struct THeapBlockHeader
 {
 	u32			 nMagic;
@@ -95,8 +101,8 @@ public:
 	void *ReAllocate (void *pBlock, size_t nSize);
 
 	/// \param pBlock Memory block to be freed
-	/// \note Memory space of blocks, which are bigger than the largest bucket size,\n
-	///	  cannot be returned to a free list and is lost.
+	/// \note Onyx: blocks bigger than the largest bucket are rounded to a power of two
+	///	  and returned to a per-power free list (reused), so they are NOT lost.
 	void Free (void *pBlock);
 
 #ifdef HEAP_DEBUG
@@ -117,6 +123,7 @@ private:
 	u8		*m_pLimit;
 	size_t	 	 m_nReserve;
 	THeapBlockBucket m_Bucket[HEAP_BLOCK_MAX_BUCKETS+1];
+	THeapBlockHeader *m_pLargeFreeList[HEAP_LARGE_LISTS];	// per-power-of-2 (Onyx)
 	CSpinLock	 m_SpinLock;
 
 	static u32 s_nBucketSize[];

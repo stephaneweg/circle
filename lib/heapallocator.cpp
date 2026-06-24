@@ -53,6 +53,44 @@ void CHeapAllocator::Setup (uintptr nBase, size_t nSize, size_t nReserve)
 	m_pNext = (u8 *) nBase;
 	m_pLimit = (u8 *) (nBase + nSize);
 	m_nReserve = nReserve;
+
+	for (unsigned i = 0; i < HEAP_LARGE_LISTS; i++)		// Onyx: large-block free lists
+	{
+		m_pLargeFreeList[i] = 0;
+	}
+}
+
+// Onyx: round a request too big for any bucket up to a power-of-two size class and
+// return its free-list index (so large blocks -- canvases, big buffers -- are reused
+// instead of lost on free). Updates *pnSize to the rounded size. -1 if too huge.
+static int HeapLargeClass (size_t *pnSize)
+{
+	size_t nRounded = HEAP_BLOCK_ALIGN;
+	int nExp = 0;
+	while (nRounded < *pnSize)
+	{
+		nRounded <<= 1;
+		if (++nExp >= HEAP_LARGE_LISTS)
+		{
+			return -1;
+		}
+	}
+	*pnSize = nRounded;
+	return nExp;
+}
+
+// Free-list index of an already-rounded large block (stored size = ALIGN << exp).
+static int HeapLargeIndex (size_t nRoundedSize)
+{
+	int nExp = 0;
+	while (((size_t) HEAP_BLOCK_ALIGN << nExp) < nRoundedSize)
+	{
+		if (++nExp >= HEAP_LARGE_LISTS)
+		{
+			return -1;
+		}
+	}
+	return nExp;
 }
 
 size_t CHeapAllocator::GetFreeSpace (void) const
@@ -96,12 +134,26 @@ void *CHeapAllocator::DoAllocate (size_t nSize)
 		}
 	}
 
+	// Onyx: request bigger than every bucket -> round to a power-of-two class so it
+	// can be reused from m_pLargeFreeList instead of being lost on free.
+	int nLargeExp = -1;
+	if (pBucket->nSize == 0)
+	{
+		nLargeExp = HeapLargeClass (&nSize);
+	}
+
 	THeapBlockHeader *pBlockHeader;
 	if (   pBucket->nSize > 0
 	    && (pBlockHeader = pBucket->pFreeList) != 0)
 	{
 		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
 		pBucket->pFreeList = pBlockHeader->pNext;
+	}
+	else if (   nLargeExp >= 0
+		 && (pBlockHeader = m_pLargeFreeList[nLargeExp]) != 0)
+	{
+		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
+		m_pLargeFreeList[nLargeExp] = pBlockHeader->pNext;
 	}
 	else
 	{
@@ -235,6 +287,18 @@ void CHeapAllocator::DoFree (void *pBlock)
 
 			return;
 		}
+	}
+
+	// Onyx: no matching bucket -> a power-of-two "large" block. Return it to its size
+	// class free list so it is reused on the next same-class allocation (no leak).
+	int nLargeExp = HeapLargeIndex (pBlockHeader->nSize);
+	if (nLargeExp >= 0)
+	{
+		m_SpinLock.Acquire ();
+		pBlockHeader->pNext = m_pLargeFreeList[nLargeExp];
+		m_pLargeFreeList[nLargeExp] = pBlockHeader;
+		m_SpinLock.Release ();
+		return;
 	}
 
 #ifdef HEAP_DEBUG
