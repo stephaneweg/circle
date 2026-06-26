@@ -42,7 +42,7 @@
 #define PAGE_SIZE		0x10000				// page size used by us
 
 #define EXCEPTION_STACK_SIZE	0x8000
-#define PAGE_RESERVE		(16 * MEGABYTE)
+#define PAGE_RESERVE		(256 * MEGABYTE)	// Onyx: raised from 16M -- palloc backs app ELF segments, per-AS page tables AND app heaps (decoded images); 16M OOM'd NetSurf after ~2 large images
 
 #define MEM_KERNEL_START	0x80000					// main code starts here
 #define MEM_KERNEL_END		(MEM_KERNEL_START + KERNEL_MAX_SIZE)
