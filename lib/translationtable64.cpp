@@ -105,6 +105,86 @@ uintptr CTranslationTable::GetBaseAddress (void) const
 	return (uintptr) m_pTable;
 }
 
+// Onyx: add NORMAL cacheable identity mappings for high RAM into the live table.
+boolean CTranslationTable::MapRangeNormal (u64 nBase, u64 nSize)
+{
+	if (m_pTable == 0)					return FALSE;
+	if ((nBase & (ARMV8MMU_LEVEL3_PAGE_SIZE - 1)) != 0)	return FALSE;	// 64KB-aligned
+	if ((nSize & (ARMV8MMU_LEVEL3_PAGE_SIZE - 1)) != 0)	return FALSE;
+	if (nSize == 0)						return FALSE;
+
+	const u64 nL2Span = (u64) ARMV8MMU_TABLE_ENTRIES * ARMV8MMU_LEVEL3_PAGE_SIZE;	// 512 MB
+	u64 nEnd = nBase + nSize;
+	if (nEnd <= nBase)					return FALSE;	// overflow
+
+	u64 nAddr = nBase;
+	while (nAddr < nEnd)
+	{
+		unsigned nL2Index = (unsigned) (nAddr / nL2Span);
+		if (nL2Index >= LEVEL2_TABLE_ENTRIES)		return FALSE;	// beyond table reach
+
+		TARMV8MMU_LEVEL2_TABLE_DESCRIPTOR *pL2Desc = &m_pTable[nL2Index].Table;
+
+		TARMV8MMU_LEVEL3_DESCRIPTOR *pL3;
+		if (pL2Desc->Value11 == 3)			// already a table (reuse, do not clobber)
+		{
+			pL3 = (TARMV8MMU_LEVEL3_DESCRIPTOR *)
+				ARMV8MMUL2TABLEPTR ((u64) pL2Desc->TableAddress);
+		}
+		else						// invalid L2 entry (high RAM): create L3
+		{
+			pL3 = (TARMV8MMU_LEVEL3_DESCRIPTOR *) palloc ();
+			if (pL3 == 0)				return FALSE;
+			memset (pL3, 0, PAGE_SIZE);
+
+			pL2Desc->Value11     = 3;
+			pL2Desc->Ignored1    = 0;
+			pL2Desc->TableAddress = ARMV8MMUL2TABLEADDR ((u64) pL3);
+			pL2Desc->Reserved0   = 0;
+			pL2Desc->Ignored2    = 0;
+			pL2Desc->PXNTable    = 0;
+			pL2Desc->UXNTable    = 0;
+			pL2Desc->APTable     = AP_TABLE_ALL_ACCESS;
+			pL2Desc->NSTable     = 0;
+		}
+
+		u64 nBlockEnd = (u64) (nL2Index + 1) * nL2Span;	// end of this 512 MB block
+		if (nBlockEnd > nEnd) nBlockEnd = nEnd;
+		while (nAddr < nBlockEnd)
+		{
+			unsigned nL3Index = (unsigned) ((nAddr % nL2Span) / ARMV8MMU_LEVEL3_PAGE_SIZE);
+			TARMV8MMU_LEVEL3_PAGE_DESCRIPTOR *pPage = &pL3[nL3Index].Page;
+
+			pPage->Value11	     = 3;
+			pPage->AttrIndx	     = ATTRINDX_NORMAL;
+			pPage->NS	     = 0;
+			pPage->AP	     = ATTRIB_AP_RW_EL1;
+			pPage->SH	     = ATTRIB_SH_INNER_SHAREABLE;
+			pPage->AF	     = 1;
+			pPage->nG	     = 0;
+			pPage->Reserved0_1   = 0;
+			pPage->OutputAddress = ARMV8MMUL3PAGEADDR (nAddr);
+			pPage->Reserved0_2   = 0;
+			pPage->Continous     = 0;
+			pPage->PXN	     = 1;
+			pPage->UXN	     = 1;
+			pPage->Ignored	     = 0;
+
+			nAddr += ARMV8MMU_LEVEL3_PAGE_SIZE;
+		}
+	}
+
+	// Publish the table writes, then invalidate the TLB. For >=4GB callers the L2 entries
+	// were invalid (no stale walk), but reclaiming the [3GB,4GB) low-RAM top rewrites LIVE
+	// DEVICE entries (DEVICE->NORMAL), which needs a TLB invalidation. This runs at boot on
+	// the primary core only (secondaries not yet started), so a local vmalle1 is sufficient.
+	DataSyncBarrier ();
+	asm volatile ("tlbi vmalle1; dsb sy; isb" ::: "memory");
+	InstructionSyncBarrier ();
+
+	return TRUE;
+}
+
 TARMV8MMU_LEVEL3_DESCRIPTOR *CTranslationTable::CreateLevel3Table (uintptr nBaseAddress)
 {
 	TARMV8MMU_LEVEL3_DESCRIPTOR *pTable = (TARMV8MMU_LEVEL3_DESCRIPTOR *) palloc ();

@@ -34,7 +34,9 @@ void *calloc (size_t nBlocks, size_t nSize);
 void *realloc (void *pBlock, size_t nSize);
 
 void *palloc (void);			// returns aligned page (AArch32: 4K, AArch64: 64K)
-void pfree (void *pPage);
+void *palloc_high (void);		// Onyx: page from the HIGH zone (1-3GB) -- non-DMA, for
+					// app frames/heaps; falls back to low if no high mem.
+void pfree (void *pPage);		// frees a palloc OR palloc_high page (routed by address)
 
 #ifdef __cplusplus
 }

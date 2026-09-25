@@ -153,7 +153,39 @@ public:
 	}
 
 	static void *PageAllocate (void)	{ return s_pThis->m_Pager.Allocate (); }
-	static void PageFree (void *pPage)	{ s_pThis->m_Pager.Free (pPage); }
+
+	// Onyx: allocate a page from the HIGH zone (non-DMA). App frames/heaps go here so
+	// they use the big high region instead of the small low pager. Tries each high
+	// segment in turn; falls back to the low pager when there is no high memory (e.g.
+	// 1GB board) or all high segments are exhausted.
+	static void *PageAllocateHigh (void)
+	{
+#if RASPPI >= 4
+		for (unsigned i = 0; i < s_pThis->m_nHighSeg; i++)
+		{
+			void *pPage = s_pThis->m_PagerHigh[i].Allocate ();
+			if (pPage != 0) return pPage;
+		}
+#endif
+		return s_pThis->m_Pager.Allocate ();
+	}
+
+	// Frees a page from ANY pager: routed by address (which high segment contains it).
+	static void PageFree (void *pPage)
+	{
+#if RASPPI >= 4
+		uintptr ulAddr = (uintptr) pPage;
+		for (unsigned i = 0; i < s_pThis->m_nHighSeg; i++)
+		{
+			if (ulAddr >= s_pThis->m_HighBase[i] && ulAddr < s_pThis->m_HighEnd[i])
+			{
+				s_pThis->m_PagerHigh[i].Free (pPage);
+				return;
+			}
+		}
+#endif
+		s_pThis->m_Pager.Free (pPage);
+	}
 
 	// Onyx: free space (bytes) of the page allocator region not yet handed out (freed
 	// pages on its free list are reused but not counted here). Used by the memory
@@ -162,6 +194,55 @@ public:
 	// Onyx: + freed pages on the pager free list (reusable). Total pager free =
 	// GetPagerFreeSpace() + GetPagerFreeListSpace().
 	static size_t GetPagerFreeListSpace (void) { return s_pThis->m_Pager.GetFreeListSpace (); }
+
+	// Onyx: same, for the HIGH-zone pagers (where app frames live), summed over all
+	// high segments. 0 if no high mem.
+	static size_t GetPagerHighFreeSpace (void)
+	{
+		size_t nSpace = 0;
+#if RASPPI >= 4
+		for (unsigned i = 0; i < s_pThis->m_nHighSeg; i++)
+			nSpace += s_pThis->m_PagerHigh[i].GetFreeSpace ();
+#endif
+		return nSpace;
+	}
+	static size_t GetPagerHighFreeListSpace (void)
+	{
+		size_t nSpace = 0;
+#if RASPPI >= 4
+		for (unsigned i = 0; i < s_pThis->m_nHighSeg; i++)
+			nSpace += s_pThis->m_PagerHigh[i].GetFreeListSpace ();
+#endif
+		return nSpace;
+	}
+
+	// Onyx: number of high-RAM segments, and bytes of RAM reclaimed above 4GB (for the
+	// boot log -- SetupHighMem runs before the logger exists, so report it from Initialize).
+	static unsigned GetHighSegCount (void)
+	{
+#if RASPPI >= 4
+		return s_pThis->m_nHighSeg;
+#else
+		return 0;
+#endif
+	}
+	static size_t GetHighMem4GSize (void)
+	{
+#if RASPPI >= 4
+		return s_pThis->m_nMemSizeHigh4G;
+#else
+		return 0;
+#endif
+	}
+	// Onyx: total bytes of the HIGH page zone (all segments) -- the app page pool size.
+	static size_t GetHighZoneTotal (void)
+	{
+#if RASPPI >= 4
+		return s_pThis->m_nHighZoneTotal;
+#else
+		return 0;
+#endif
+	}
 
 	// Onyx: freed heap blocks on the bucket/large free lists (reusable). Add to
 	// GetHeapFreeSpace(HEAP_ANY) for the true free heap.
@@ -198,6 +279,14 @@ public:
 private:
 	void EnableMMU (void);
 
+#if RASPPI >= 4
+	// Onyx: register a contiguous high-RAM segment [nBase, nBase+nSize) with its own
+	// page allocator (PageAllocateHigh draws from these; PageFree routes back by address).
+	void AddHighSegment (uintptr nBase, size_t nSize);
+	// Onyx: reclaim RAM >=4GB (relocated high chunk on >4GB boards) from the device tree.
+	void SetupHighMemAbove4G (void);
+#endif
+
 private:
 	boolean m_bEnableMMU;
 	size_t m_nMemSize;
@@ -208,9 +297,20 @@ private:
 
 	CHeapAllocator m_HeapLow;
 #if RASPPI >= 4
-	CHeapAllocator m_HeapHigh;
+	CHeapAllocator m_HeapHigh;	// Onyx: left un-Setup -- the high region now backs m_PagerHigh
 #endif
-	CPageAllocator m_Pager;
+	CPageAllocator m_Pager;		// LOW zone (<1GB): kernel page tables, DMA-critical
+#if RASPPI >= 4
+	// HIGH zone: one page allocator per contiguous high-RAM segment. seg 0 = [1GB,3GB];
+	// further segments are RAM >=4GB reclaimed from the device tree (SetupHighMemAbove4G).
+#define CMEM_HIGH_SEG_MAX	8
+	CPageAllocator m_PagerHigh[CMEM_HIGH_SEG_MAX];
+	uintptr	       m_HighBase[CMEM_HIGH_SEG_MAX];
+	uintptr	       m_HighEnd[CMEM_HIGH_SEG_MAX];		// exclusive
+	unsigned       m_nHighSeg;
+	size_t	       m_nMemSizeHigh4G;			// RAM mapped above 4GB (bytes)
+	size_t	       m_nHighZoneTotal;			// total of all high segments (app pool)
+#endif
 
 #if AARCH == 32
 	CPageTable *m_pPageTable;

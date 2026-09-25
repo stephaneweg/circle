@@ -20,6 +20,7 @@
 #include <circle/memory.h>
 #include <circle/bcmpropertytags.h>
 #include <circle/machineinfo.h>
+#include <circle/devicetreeblob.h>		// Onyx: read /memory ranges to reclaim RAM >=4GB
 #include <circle/alloc.h>
 #include <circle/spinlock.h>
 #include <circle/synchronize.h>
@@ -38,6 +39,9 @@ CMemorySystem::CMemorySystem (boolean bEnableMMU)
 	m_HeapLow ("heaplow"),
 #if RASPPI >= 4
 	m_HeapHigh ("heaphigh"),
+	m_nHighSeg (0),
+	m_nMemSizeHigh4G (0),
+	m_nHighZoneTotal (0),
 #endif
 	m_pTranslationTable (0)
 {
@@ -144,7 +148,126 @@ void CMemorySystem::SetupHighMem (void)
 
 		m_nMemSizeHigh = (size_t) nHighSize;
 
-		m_HeapHigh.Setup (MEM_HIGHMEM_START, (size_t) nHighSize, 0);
+		// Onyx: the high region (1-3GB) backs the HIGH-zone page allocator (app
+		// frames/heaps), NOT the bucket heap. m_HeapHigh is left un-Setup; new/malloc
+		// stay in the low heap (DMA-safe), app pages draw from the high pager via
+		// palloc_high(). This is identity-mapped Normal memory (see translationtable64),
+		// so the kernel reaches these frames by identity for zeroing/ELF-load.
+		AddHighSegment (MEM_HIGHMEM_START, (size_t) nHighSize);	// high segment 0
+	}
+
+	// Onyx: reclaim every RAM byte above seg0 that the boot table left unused -- the
+	// [3GB, ~3.94GB) low-RAM top (mapped DEVICE by the ctor) AND any chunk relocated above
+	// 4GB (which the ctor skips). Reads the real extents from the firmware device tree, so
+	// it stops at real RAM (never the MMIO window). Safe no-op if the DTB is absent.
+	SetupHighMemAbove4G ();
+}
+
+// Onyx: register a contiguous high-RAM segment with its own page allocator.
+void CMemorySystem::AddHighSegment (uintptr nBase, size_t nSize)
+{
+	if (m_nHighSeg >= CMEM_HIGH_SEG_MAX || nSize == 0)
+	{
+		return;
+	}
+
+	m_HighBase[m_nHighSeg] = nBase;
+	m_HighEnd[m_nHighSeg]  = nBase + nSize;
+	m_PagerHigh[m_nHighSeg].Setup (nBase, nSize);
+	m_nHighSeg++;
+	m_nHighZoneTotal += nSize;		// running total across all high segments
+}
+
+// Onyx: map and register RAM above the [1GB,3GB] seg0. (A) Precise path: read the device
+// tree /memory node -- recovers the [3GB,~3.94GB) low-RAM top (DEVICE->NORMAL) AND the
+// relocated chunk >4GB, bounded to firmware-declared RAM (never the MMIO window). (B) If the
+// DTB is unavailable (not captured) or yields nothing >4GB, fall back to GetRAMSize and map
+// [4GB, totalRAM) -- provably real RAM (see below). Safe no-op on <=4GB boards.
+void CMemorySystem::SetupHighMemAbove4G (void)
+{
+	if (m_pTranslationTable == 0)			// MMU disabled -> cannot add mappings
+	{
+		return;
+	}
+
+	CMachineInfo *pInfo = CMachineInfo::Get ();
+	if (pInfo == 0)
+	{
+		return;
+	}
+
+	// (A) Precise reclaim from the device tree, when the firmware passed one. Any failure
+	// here (no DTB, node/reg/cells unexpected) just yields nEntries==0 and falls through to
+	// the GetRAMSize fallback below -- never an early return.
+	const CDeviceTreeBlob *pDTB = pInfo->GetDTB ();
+	const TDeviceTreeNode *pMem = pDTB != 0 ? pDTB->FindNode ("/memory@0") : 0;
+	if (pDTB != 0 && pMem == 0)
+	{
+		pMem = pDTB->FindNode ("/memory");
+	}
+	// Pi4 root uses #address-cells=2, #size-cells=2 -> 4 words (16 bytes) per entry.
+	const TDeviceTreeProperty *pReg = pMem != 0 ? pDTB->FindProperty (pMem, "reg") : 0;
+	size_t nLen = pReg != 0 ? pDTB->GetPropertyValueLength (pReg) : 0;
+	unsigned nEntries = (nLen != 0 && (nLen % 16) == 0) ? (unsigned) (nLen / 16) : 0;
+
+	for (unsigned i = 0; i < nEntries; i++)
+	{
+		u64 nBase = ((u64) pDTB->GetPropertyValueWord (pReg, i*4 + 0) << 32)
+			  |  (u64) pDTB->GetPropertyValueWord (pReg, i*4 + 1);
+		u64 nSize = ((u64) pDTB->GetPropertyValueWord (pReg, i*4 + 2) << 32)
+			  |  (u64) pDTB->GetPropertyValueWord (pReg, i*4 + 3);
+
+		// Take the portion of this RAM segment at/above 3GB (= where seg0 ends). Below
+		// that is already handled (low region + the [1GB,3GB] seg0). The >=3GB part is
+		// the [3GB, RAMtop) low-RAM top (DEVICE->NORMAL) and/or a relocated chunk >4GB.
+		// `end` comes from the firmware, so it stops at real RAM -- never the MMIO window.
+		const u64 kReclaimStart = (u64) MEM_HIGHMEM_END + 1;		// 0xC0000000 = 3GB
+		if (nBase < kReclaimStart)
+		{
+			if (nBase + nSize <= kReclaimStart)
+			{
+				continue;		// entirely below 3GB
+			}
+			nSize -= (size_t) (kReclaimStart - nBase);
+			nBase  = kReclaimStart;
+		}
+
+		// Validate before mapping (a bad range could map MMIO as RAM -> hang).
+		if (nSize == 0)					continue;
+		if ((nBase & 0xFFFFULL) != 0 || (nSize & 0xFFFFULL) != 0)	continue;	// 64KB
+		if (nBase + nSize <= nBase)			continue;	// overflow
+		if (nBase + nSize > 0x1000000000ULL)		continue;	// >64GB -> bogus
+
+		if (!m_pTranslationTable->MapRangeNormal (nBase, nSize))
+		{
+			continue;
+		}
+		AddHighSegment ((uintptr) nBase, (size_t) nSize);
+		if (nBase >= 0x100000000ULL)			// count only the genuine >4GB part
+		{
+			m_nMemSizeHigh4G += (size_t) nSize;
+		}
+	}
+
+	// (B) Fallback: the DTB was absent (or gave no RAM above 4GB), but the firmware reports
+	// a board larger than 4GB. Trust GetRAMSize and map [4GB, totalRAM). That range is
+	// provably a SUBSET of the relocated high chunk (chunk = total - lowRAM, and lowRAM <=
+	// 4GB because the <4GB MMIO window caps it), so every byte is real RAM -- no MMIO, no
+	// layout assumption. Recovers the big >4GB chunk even when the device tree isn't captured.
+	if (m_nMemSizeHigh4G == 0)
+	{
+		unsigned nRAMMB = pInfo->GetRAMSize ();			// firmware-reported, e.g. 8192
+		if (nRAMMB > 4096)
+		{
+			u64 nBase = 0x100000000ULL;			// 4GB
+			u64 nSize = (((u64) nRAMMB) * MEGABYTE) - nBase;	// [4GB, totalRAM)
+			nSize &= ~0xFFFFULL;				// 64KB-align (defensive)
+			if (nSize != 0 && m_pTranslationTable->MapRangeNormal (nBase, nSize))
+			{
+				AddHighSegment ((uintptr) nBase, (size_t) nSize);
+				m_nMemSizeHigh4G += (size_t) nSize;
+			}
+		}
 	}
 }
 

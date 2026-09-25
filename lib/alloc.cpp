@@ -67,6 +67,11 @@ void *palloc (void)
 	return CMemorySystem::PageAllocate ();
 }
 
+void *palloc_high (void)
+{
+	return CMemorySystem::PageAllocateHigh ();
+}
+
 void pfree (void *pPage)
 {
 	CMemorySystem::PageFree (pPage);

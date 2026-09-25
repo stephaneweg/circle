@@ -37,6 +37,13 @@ public:
 
 	uintptr GetBaseAddress (void) const;
 
+	// Onyx: identity-map [nBase, nBase+nSize) as NORMAL cacheable RAM, AFTER boot, into
+	// the live (already-active) table. Used to add high RAM (>=4GB) that the ctor skips.
+	// Creates L3 tables for any not-yet-mapped L2 entries it covers; assumes those L2
+	// entries were invalid (high RAM region), never overwrites an existing mapping.
+	// nBase/nSize must be 64KB-aligned. Returns FALSE on bad args or palloc failure.
+	boolean MapRangeNormal (u64 nBase, u64 nSize) NOOPT;
+
 private:
 	TARMV8MMU_LEVEL3_DESCRIPTOR *CreateLevel3Table (uintptr nBaseAddress) NOOPT;
 
