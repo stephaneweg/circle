@@ -92,6 +92,16 @@ enum TSpecialKey
 	KeyKP_Center,
 	KeyKP_Comma,
 	KeyKP_Period,
+	// Onyx: Shift + the navigation keys (xterm ";2" sequences) -- appended here so the
+	// codes above (stored in the .kmap layout files) keep their values.
+	KeyShiftHome,
+	KeyShiftEnd,
+	KeyShiftPageUp,
+	KeyShiftPageDown,
+	KeyShiftUp,
+	KeyShiftDown,
+	KeyShiftLeft,
+	KeyShiftRight,
 	KeyMaxCode
 };
 

@@ -93,7 +93,15 @@ const char *CKeyMap::s_KeyStrings[KeyMaxCode-KeySpace] =
 	"0",			// KeyKP_0
 	"\x1b[G",		// KeyKP_Center
 	",",			// KeyKP_Comma
-	"."			// KeyKP_Period
+	".",			// KeyKP_Period
+	"\x1b[1;2H",		// KeyShiftHome		(Onyx)
+	"\x1b[1;2F",		// KeyShiftEnd
+	"\x1b[5;2~",		// KeyShiftPageUp
+	"\x1b[6;2~",		// KeyShiftPageDown
+	"\x1b[1;2A",		// KeyShiftUp
+	"\x1b[1;2B",		// KeyShiftDown
+	"\x1b[1;2D",		// KeyShiftLeft
+	"\x1b[1;2C"		// KeyShiftRight
 };
 
 // Zircon: the kernel compiles in NO country maps -- keyboard layouts ship as
