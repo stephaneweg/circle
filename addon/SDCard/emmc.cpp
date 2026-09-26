@@ -2643,10 +2643,14 @@ int CEMMCDevice::TimeoutWait (unsigned long reg, unsigned mask, int value, unsig
 #ifdef NO_BUSY_WAIT
 		CScheduler::Get ()->Yield ();
 #else
+		// Spin 2 ms first: a command's normal latency (the card's access time, one block's
+		// transfer) ends within that, and yielding for it would hand the CPU to another
+		// task for a whole time slice (up to 20 ms) per command -- the transfers crawled
+		// at 2 MB/s. Only the long waits (the card busy writing or erasing) yield.
 		if (   OnyxDriverWait != 0
-		    && m_pTimer->GetClockTicks () - nStartTicks >= 100 * (CLOCKHZ / 1000000))
+		    && m_pTimer->GetClockTicks () - nStartTicks >= 2000 * (CLOCKHZ / 1000000))
 		{
-			OnyxDriverWait ();		// (most waits end within a few us)
+			OnyxDriverWait ();
 		}
 #endif
 	}
