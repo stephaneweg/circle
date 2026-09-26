@@ -38,6 +38,9 @@
 #include <circle/util.h>
 #include <circle/stdarg.h>
 #include <assert.h>
+
+extern unsigned long long g_ullEMMCWaitUs, g_ullEMMCCopyUs;	// (Onyx, defined below)
+extern unsigned g_nEMMCDataCmds;
 #ifndef USE_SDHOST
 	#include <circle/bcm2835.h>
 	#include <circle/bcm2711.h>
@@ -895,6 +898,11 @@ u32 CEMMCDevice::GetClockDivider (u32 base_clock, u32 target_rate)
 }
 
 // Switch the clock rate whilst running
+// Onyx: where the time of the data commands goes (the kernel logs it after a big read):
+// waiting for each block's "data ready", moving it through the data port (PIO).
+unsigned long long g_ullEMMCWaitUs = 0, g_ullEMMCCopyUs = 0;
+unsigned g_nEMMCDataCmds = 0;
+
 boolean CEMMCDevice::s_bHighSpeed = FALSE;
 boolean CEMMCDevice::s_bHighSpeedOn = FALSE;
 
@@ -1083,9 +1091,13 @@ void CEMMCDevice::IssueCommandInt (u32 cmd_reg, u32 argument, int timeout)
 		assert (((uintptr) m_buf & 3) == 0);
 		u32 *pData = (u32 *) m_buf;
 
+		g_nEMMCDataCmds++;
 		for (int nBlock = 0; nBlock < m_blocks_to_transfer; nBlock++)
 		{
+			unsigned nT0 = m_pTimer->GetClockTicks ();
 			TimeoutWait (EMMC_INTERRUPT, wr_irpt | 0x8000, 1, timeout);
+			unsigned nT1 = m_pTimer->GetClockTicks ();
+			g_ullEMMCWaitUs += nT1 - nT0;
 			irpts = read32 (EMMC_INTERRUPT);
 			write32 (EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
 
@@ -1119,6 +1131,7 @@ void CEMMCDevice::IssueCommandInt (u32 cmd_reg, u32 argument, int timeout)
 					*pData++ = read32 (EMMC_DATA);
 				}
 			}
+			g_ullEMMCCopyUs += m_pTimer->GetClockTicks () - nT1;
 		}
 
 #ifdef EMMC_DEBUG2
