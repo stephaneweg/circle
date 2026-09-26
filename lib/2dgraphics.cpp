@@ -537,6 +537,59 @@ CDisplay *C2DGraphics::GetDisplay (void)
 	return m_pDisplay;
 }
 
+void C2DGraphics::UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)
+{
+#if RASPPI <= 4
+	if (m_bVSync)
+	{
+		UpdateDisplay ();
+		return;
+	}
+#endif
+	if (!m_pFrameBuffer || m_pDisplay != m_pFrameBuffer)	// (another kind of display)
+	{
+		UpdateDisplay ();
+		return;
+	}
+
+	if (nPosX >= m_nWidth || nPosY >= m_nHeight || !nWidth || !nHeight)
+	{
+		return;
+	}
+	if (nWidth > m_nWidth - nPosX)
+	{
+		nWidth = m_nWidth - nPosX;
+	}
+	if (nHeight > m_nHeight - nPosY)
+	{
+		nHeight = m_nHeight - nPosY;
+	}
+
+	// Gather the rectangle's rows into one contiguous block (cached memory: fast), then
+	// let the frame buffer copy it into place (its 2D DMA, as UpdateDisplay () does).
+	unsigned nBytes = m_nDepth / 8;
+	static u8 *s_pArea = 0;
+	if (!s_pArea)
+	{
+		s_pArea = new u8[m_nWidth * m_nHeight * nBytes];
+		if (!s_pArea)
+		{
+			UpdateDisplay ();
+			return;
+		}
+	}
+	const u8 *pSrc = m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes;
+	u8 *pDst = s_pArea;
+	for (unsigned y = 0; y < nHeight; y++)
+	{
+		memcpy (pDst, pSrc, nWidth * nBytes);
+		pDst += nWidth * nBytes;
+		pSrc += m_nWidth * nBytes;
+	}
+	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
+	m_pFrameBuffer->SetArea (Area, s_pArea);
+}
+
 void C2DGraphics::UpdateDisplay (void)
 {
 #if RASPPI <= 4
