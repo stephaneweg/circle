@@ -895,6 +895,9 @@ u32 CEMMCDevice::GetClockDivider (u32 base_clock, u32 target_rate)
 }
 
 // Switch the clock rate whilst running
+boolean CEMMCDevice::s_bHighSpeed = FALSE;
+boolean CEMMCDevice::s_bHighSpeedOn = FALSE;
+
 int CEMMCDevice::SwitchClockRate (u32 base_clock, u32 target_rate)
 {
 	// Decide on an appropriate divider
@@ -2157,12 +2160,16 @@ int CEMMCDevice::CardReset (void)
 		LogWrite (LogDebug, "SCR: version %s, bus_widths %01x", sd_versions[m_pSCR->sd_version], m_pSCR->sd_bus_widths);
 #endif
 
-#ifdef SD_HIGH_SPEED
+#ifndef SD_HIGH_SPEED
+		// Onyx: High Speed at run time (CEMMCDevice::SetHighSpeed)
+		if (s_bHighSpeed && m_pSCR->sd_version >= SD_VER_1_1)
+#else
 		// If card supports CMD6, read switch information from card
 		if (m_pSCR->sd_version >= SD_VER_1_1)
+#endif
 		{
 			// 512 bit response
-			u8 cmd6_resp[64];
+			u8 cmd6_resp[64] __attribute__ ((aligned (4)));	// (m_buf: word aligned)
 			m_buf = &cmd6_resp[0];
 			m_block_size = 64;
 
@@ -2192,7 +2199,12 @@ int CEMMCDevice::CardReset (void)
 					{
 						// Success; switch clock to 50MHz
 #ifndef USE_SDHOST
+						// Onyx: the host's High Speed Enable (CONTROL0 bit 2, SD Host
+						// spec HCTL_HS_EN) first, so it samples with the High Speed timing
+						u32 control0 = read32 (EMMC_CONTROL0);
+						write32 (EMMC_CONTROL0, control0 | (1 << 2));
 						SwitchClockRate (base_clock, SD_CLOCK_HIGH);
+						s_bHighSpeedOn = TRUE;
 #else
 						m_Host.SetClock (SD_CLOCK_HIGH);
 #endif
@@ -2206,7 +2218,6 @@ int CEMMCDevice::CardReset (void)
 			// Restore block size
 			m_block_size = SD_BLOCK_SIZE;
 		}
-#endif
 	}
 	else
 	{

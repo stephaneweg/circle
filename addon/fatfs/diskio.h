@@ -30,6 +30,9 @@ DSTATUS disk_initialize (BYTE pdrv);
 DSTATUS disk_status (BYTE pdrv);
 DRESULT disk_read (BYTE pdrv, BYTE* buff, LBA_t sector, UINT count);
 DRESULT disk_write (BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count);
+/* Onyx: the sector cache (on by default) and its counters */
+void disk_cache_enable (int bOn);
+void disk_cache_stats (unsigned *pHits, unsigned *pMisses);
 DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 
 

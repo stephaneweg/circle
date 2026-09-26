@@ -74,6 +74,11 @@ public:
 
 	boolean Initialize (void);
 
+	// Onyx: switch the card to High Speed (50 MHz, SD 1.1+ cards) at the next Initialize;
+	// a run-time choice (upstream: the SD_HIGH_SPEED compile option), off by default.
+	static void SetHighSpeed (boolean bOn)	{ s_bHighSpeed = bOn; }
+	static boolean IsHighSpeed (void)	{ return s_bHighSpeedOn; }
+
 	int Read (void *pBuffer, size_t nCount);
 	int Write (const void *pBuffer, size_t nCount);
 
@@ -155,6 +160,8 @@ private:
 	u64 m_capacity;
 
 	u32 m_card_supports_sdhc;
+	static boolean s_bHighSpeed;		// asked for (SetHighSpeed)
+	static boolean s_bHighSpeedOn;		// in use (the card switched)
 	u32 m_card_supports_hs;
 	u32 m_card_supports_18v;
 	u32 m_card_ocr;

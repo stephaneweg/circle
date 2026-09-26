@@ -38,8 +38,94 @@ static const char *s_pVolumeName[FF_VOLUMES] =
 
 static CDevice *s_pVolume[FF_VOLUMES] = {0};
 
-static u8 *s_pBuffer = 0;
-static unsigned s_nBufferSize = 0;
+/* (Onyx: one bounce buffer per volume -- the SD driver may yield in the middle of a
+   transfer, so two volumes' transfers can now overlap; each volume has its own lock) */
+static u8 *s_pBuffer[FF_VOLUMES] = {0};
+static unsigned s_nBufferSize[FF_VOLUMES] = {0};
+
+/*-----------------------------------------------------------------------*/
+/* Onyx: a sector cache                                                  */
+/*-----------------------------------------------------------------------*/
+/* FatFs reads the FAT and the directories one sector at a time (through
+/  its window), and each read is a whole SD command round trip: opening a
+/  file deep in a big folder walked it sector by sector, every time. The
+/  single-sector reads are kept here (direct-mapped, 2048 x 512 bytes);
+/  every write goes to the device AND updates the cached copies (write-
+/  through), so the cache never holds anything the card does not. The big
+/  multi-sector reads of file data go straight to the device. */
+
+#define DCACHE_SLOTS	2048			/* a power of two */
+
+static u64 *s_pDCKey = 0;			/* ((sector << 4) | (drive + 1)), 0 = free */
+static u8 *s_pDCData = 0;
+static int s_bDCOn = 1;
+static unsigned s_nDCHits = 0, s_nDCMisses = 0;
+
+static inline unsigned dc_slot (BYTE pdrv, LBA_t sector)
+{
+	return (unsigned) ((sector ^ (sector >> 11) ^ ((LBA_t) pdrv << 7)) & (DCACHE_SLOTS - 1));
+}
+
+static inline u64 dc_key (BYTE pdrv, LBA_t sector)
+{
+	return ((u64) sector << 4) | (u64) (pdrv + 1);
+}
+
+static int dc_ready (void)
+{
+	if (!s_bDCOn)
+	{
+		return 0;
+	}
+	if (s_pDCKey == 0)
+	{
+		s_pDCKey = new u64[DCACHE_SLOTS];
+		s_pDCData = new u8[DCACHE_SLOTS * SECTOR_SIZE];
+		if (s_pDCKey == 0 || s_pDCData == 0)
+		{
+			s_bDCOn = 0;
+			return 0;
+		}
+		for (unsigned i = 0; i < DCACHE_SLOTS; i++)
+		{
+			s_pDCKey[i] = 0;
+		}
+	}
+	return 1;
+}
+
+static void dc_forget_drive (BYTE pdrv)		/* (mounted again, or removed) */
+{
+	if (s_pDCKey == 0)
+	{
+		return;
+	}
+	for (unsigned i = 0; i < DCACHE_SLOTS; i++)
+	{
+		if ((s_pDCKey[i] & 15) == (u64) (pdrv + 1))
+		{
+			s_pDCKey[i] = 0;
+		}
+	}
+}
+
+void disk_cache_enable (int bOn)
+{
+	s_bDCOn = bOn;
+	if (!bOn && s_pDCKey != 0)
+	{
+		for (unsigned i = 0; i < DCACHE_SLOTS; i++)
+		{
+			s_pDCKey[i] = 0;
+		}
+	}
+}
+
+void disk_cache_stats (unsigned *pHits, unsigned *pMisses)
+{
+	*pHits = s_nDCHits;
+	*pMisses = s_nDCMisses;
+}
 
 
 
@@ -53,6 +139,14 @@ static void disk_removed (
 )
 {
 	*((CDevice **) pContext) = 0;
+
+	for (BYTE pdrv = 0; pdrv < FF_VOLUMES; pdrv++)		/* (Onyx) its cached sectors */
+	{
+		if ((CDevice **) pContext == &s_pVolume[pdrv])
+		{
+			dc_forget_drive (pdrv);
+		}
+	}
 }
 
 
@@ -89,6 +183,7 @@ DSTATUS disk_initialize (
 		return STA_NOINIT;
 	}
 
+	dc_forget_drive (pdrv);				/* (Onyx) maybe another medium */
 	s_pVolume[pdrv] = CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
 	if (s_pVolume[pdrv] != 0)
 	{
@@ -129,17 +224,33 @@ DRESULT disk_read (
 	unsigned nSize = count * SECTOR_SIZE;
 	if (((uintptr) pBuffer & 3) != 0)
 	{
-		if (s_nBufferSize < nSize)
+		if (s_nBufferSize[pdrv] < nSize)
 		{
-			delete [] s_pBuffer;
+			delete [] s_pBuffer[pdrv];
 
-			s_nBufferSize = nSize;
+			s_nBufferSize[pdrv] = nSize;
 
-			s_pBuffer = new u8[s_nBufferSize];
-			assert (s_pBuffer != 0);
+			s_pBuffer[pdrv] = new u8[s_nBufferSize[pdrv]];
+			assert (s_pBuffer[pdrv] != 0);
 		}
 
-		pBuffer = s_pBuffer;
+		pBuffer = s_pBuffer[pdrv];
+	}
+
+	/* (Onyx) a single sector: from the cache if it is there */
+	unsigned nSlot = 0;
+	int bCache = count == 1 && dc_ready ();
+	if (bCache)
+	{
+		nSlot = dc_slot (pdrv, sector);
+		if (s_pDCKey[nSlot] == dc_key (pdrv, sector))
+		{
+			memcpy (buff, s_pDCData + nSlot * SECTOR_SIZE, SECTOR_SIZE);
+			s_nDCHits++;
+
+			return RES_OK;
+		}
+		s_nDCMisses++;
 	}
 
 	QWORD offset = sector;
@@ -154,6 +265,12 @@ DRESULT disk_read (
 	if (pBuffer != buff)
 	{
 		memcpy (buff, pBuffer, nSize);
+	}
+
+	if (bCache)
+	{
+		memcpy (s_pDCData + nSlot * SECTOR_SIZE, buff, SECTOR_SIZE);
+		s_pDCKey[nSlot] = dc_key (pdrv, sector);
 	}
 
 	return RES_OK;
@@ -190,26 +307,50 @@ DRESULT disk_write (
 	unsigned nSize = count * SECTOR_SIZE;
 	if (((uintptr) pBuffer & 3) != 0)
 	{
-		if (s_nBufferSize < nSize)
+		if (s_nBufferSize[pdrv] < nSize)
 		{
-			delete [] s_pBuffer;
+			delete [] s_pBuffer[pdrv];
 
-			s_nBufferSize = nSize;
+			s_nBufferSize[pdrv] = nSize;
 
-			s_pBuffer = new u8[s_nBufferSize];
-			assert (s_pBuffer != 0);
+			s_pBuffer[pdrv] = new u8[s_nBufferSize[pdrv]];
+			assert (s_pBuffer[pdrv] != 0);
 		}
 
-		memcpy (s_pBuffer, buff, nSize);
+		memcpy (s_pBuffer[pdrv], buff, nSize);
 
-		pBuffer = s_pBuffer;
+		pBuffer = s_pBuffer[pdrv];
 	}
 
 	QWORD offset = sector;
 	offset *= SECTOR_SIZE;
 	pDevice->Seek (offset);
 
-	if (pDevice->Write (pBuffer, nSize) < 0)
+	int nResult = pDevice->Write (pBuffer, nSize);
+
+	/* (Onyx) write-through: the cached copies of these sectors follow the card (or are
+	   dropped if the write failed: what the card holds is unknown then) */
+	if (s_pDCKey != 0)
+	{
+		for (UINT i = 0; i < count; i++)
+		{
+			unsigned nSlot = dc_slot (pdrv, sector + i);
+			if (s_pDCKey[nSlot] != dc_key (pdrv, sector + i))
+			{
+				continue;
+			}
+			if (nResult < 0)
+			{
+				s_pDCKey[nSlot] = 0;
+			}
+			else
+			{
+				memcpy (s_pDCData + nSlot * SECTOR_SIZE, buff + i * SECTOR_SIZE, SECTOR_SIZE);
+			}
+		}
+	}
+
+	if (nResult < 0)
 	{
 		return RES_ERROR;
 	}
