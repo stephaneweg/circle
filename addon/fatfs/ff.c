@@ -4045,8 +4045,26 @@ FRESULT f_read (
 			sect += csect;
 			cc = btr / SS(fs);					/* When remaining bytes >= sector size, */
 			if (cc > 0) {						/* Read maximum contiguous sectors directly */
+				UINT want = cc;
 				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
 					cc = fs->csize - csect;
+				}
+				/* Onyx: go on across the next clusters while they follow on the disk (a file
+				   written in one go): one multi-sector read instead of one per cluster --
+				   with small clusters, one SD command per 512 bytes. */
+#if FF_USE_FASTSEEK
+				if (!fp->cltbl)
+#endif
+				{
+					DWORD cl = fp->clust;
+					while (cc < want) {
+						DWORD nx = get_fat(&fp->obj, cl);
+						if (nx != cl + 1) break;			/* (not contiguous, end, error) */
+						UINT add = (want - cc < fs->csize) ? want - cc : fs->csize;
+						cc += add; cl = nx;
+						if (add < fs->csize) break;			/* (stops inside that cluster) */
+					}
+					fp->clust = cl;					/* the cluster of the last sector read */
 				}
 				if (disk_read(fs->pdrv, rbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
 #if !FF_FS_READONLY && FF_FS_MINIMIZE <= 2		/* Replace one of the read sectors with cached data if it contains a dirty sector */
@@ -4160,8 +4178,27 @@ FRESULT f_write (
 			sect += csect;
 			cc = btw / SS(fs);				/* When remaining bytes >= sector size, */
 			if (cc > 0) {					/* Write maximum contiguous sectors directly */
+				UINT want = cc;
 				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
 					cc = fs->csize - csect;
+				}
+				/* Onyx: go on across the next clusters (followed, or allocated as the file
+				   grows) while they follow on the disk: one multi-sector write. A cluster
+				   allocated here that does not follow stays in the chain: the next turn of
+				   the loop finds it, as it would have allocated it. */
+#if FF_USE_FASTSEEK
+				if (!fp->cltbl)
+#endif
+				{
+					DWORD cl = fp->clust;
+					while (cc < want) {
+						DWORD nx = create_chain(&fp->obj, cl);
+						if (nx != cl + 1) break;			/* (not contiguous, disk full, error) */
+						UINT add = (want - cc < fs->csize) ? want - cc : fs->csize;
+						cc += add; cl = nx;
+						if (add < fs->csize) break;
+					}
+					fp->clust = cl;
 				}
 				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
 #if FF_FS_MINIMIZE <= 2
