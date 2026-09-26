@@ -19,6 +19,13 @@
 
 static CGenericLock *s_pMutex[FF_VOLUMES + 1] = {0};
 
+// Onyx: the kernel may supply the volume lock -- a sleeping lock whose waiters yield --
+// by defining these (weak references: absent = the CGenericLock above). With it, the SD
+// driver can yield while it waits for the card, the lock held, without deadlocking a
+// second task that calls FatFs meanwhile.
+void OnyxFsLockTake (int vol) __attribute__ ((weak));
+void OnyxFsLockGive (int vol) __attribute__ ((weak));
+
 
 /*------------------------------------------------------------------------*/
 /* Create a Mutex                                                         */
@@ -75,6 +82,13 @@ int ff_mutex_take (	/* Returns 1:Succeeded or 0:Timeout */
 	assert (vol <= FF_VOLUMES);
 	assert (s_pMutex[vol] != 0);
 
+	if (OnyxFsLockTake != 0)
+	{
+		OnyxFsLockTake (vol);
+
+		return 1;
+	}
+
 	s_pMutex[vol]->Acquire ();
 
 	return 1;
@@ -93,6 +107,13 @@ void ff_mutex_give (
 {
 	assert (vol <= FF_VOLUMES);
 	assert (s_pMutex[vol] != 0);
+
+	if (OnyxFsLockGive != 0)
+	{
+		OnyxFsLockGive (vol);
+
+		return;
+	}
 
 	s_pMutex[vol]->Release ();
 }

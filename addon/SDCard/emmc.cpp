@@ -2612,6 +2612,10 @@ int CEMMCDevice::DoWrite (u8 *buf, size_t buf_size, u32 block_no)
 
 #ifndef USE_SDHOST
 
+// Onyx: called while the card keeps us waiting (after a short spin), if the kernel
+// defines it (weak reference): it yields the CPU when that is safe (task level, IRQs on).
+void OnyxDriverWait (void) __attribute__ ((weak));
+
 int CEMMCDevice::TimeoutWait (unsigned long reg, unsigned mask, int value, unsigned usec)
 {
 	assert (m_pTimer != 0);
@@ -2627,6 +2631,12 @@ int CEMMCDevice::TimeoutWait (unsigned long reg, unsigned mask, int value, unsig
 
 #ifdef NO_BUSY_WAIT
 		CScheduler::Get ()->Yield ();
+#else
+		if (   OnyxDriverWait != 0
+		    && m_pTimer->GetClockTicks () - nStartTicks >= 100 * (CLOCKHZ / 1000000))
+		{
+			OnyxDriverWait ();		// (most waits end within a few us)
+		}
 #endif
 	}
 
