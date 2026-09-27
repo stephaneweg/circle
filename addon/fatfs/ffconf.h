@@ -34,7 +34,7 @@
 /* This option switches f_mkfs(). (0:Disable or 1:Enable) */
 
 
-#define FF_USE_FASTSEEK	0
+#define FF_USE_FASTSEEK	1	/* Onyx: kapi_seek on big files (the GameCube discs) */
 /* This option switches fast seek feature. (0:Disable or 1:Enable) */
 
 
