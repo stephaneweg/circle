@@ -88,6 +88,15 @@
 #define HEAP_BLOCK_BUCKET_SIZES	0x40,0x400,0x1000,0x4000,0x10000,0x40000,0x80000
 #endif
 
+// HEAP_LARGE_BLOCK_REUSE makes blocks, which are bigger than the largest
+// bucket size, reusable: their size is rounded up to the next power of two
+// and they are returned to a free list per power of two, when they are freed
+// (instead of being lost). This costs up to twice the requested size for such
+// blocks, but an application, which allocates and frees big blocks repeatedly
+// (e.g. frame buffers, file buffers), does not run out of heap any more.
+
+//#define HEAP_LARGE_BLOCK_REUSE
+
 ///////////////////////////////////////////////////////////////////////
 //
 // Raspberry Pi 1, Zero (W) and Zero 2 W

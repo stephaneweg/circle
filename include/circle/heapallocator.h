@@ -40,6 +40,10 @@ ASSERT_STATIC (DATA_CACHE_LINE_LENGTH_MAX >= 16);
 
 #define HEAP_BLOCK_MAX_BUCKETS	20
 
+#ifdef HEAP_LARGE_BLOCK_REUSE
+#define HEAP_LARGE_LISTS	32		// free lists for blocks of HEAP_BLOCK_ALIGN << n bytes
+#endif
+
 struct THeapBlockHeader
 {
 	u32			 nMagic;
@@ -96,7 +100,8 @@ public:
 
 	/// \param pBlock Memory block to be freed
 	/// \note Memory space of blocks, which are bigger than the largest bucket size,\n
-	///	  cannot be returned to a free list and is lost.
+	///	  cannot be returned to a free list and is lost (unless HEAP_LARGE_BLOCK_REUSE\n
+	///	  is defined in sysconfig.h).
 	void Free (void *pBlock);
 
 #ifdef HEAP_DEBUG
@@ -117,6 +122,9 @@ private:
 	u8		*m_pLimit;
 	size_t	 	 m_nReserve;
 	THeapBlockBucket m_Bucket[HEAP_BLOCK_MAX_BUCKETS+1];
+#ifdef HEAP_LARGE_BLOCK_REUSE
+	THeapBlockHeader *m_pLargeFreeList[HEAP_LARGE_LISTS];
+#endif
 	CSpinLock	 m_SpinLock;
 
 	static u32 s_nBucketSize[];

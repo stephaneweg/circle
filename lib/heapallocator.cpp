@@ -53,7 +53,37 @@ void CHeapAllocator::Setup (uintptr nBase, size_t nSize, size_t nReserve)
 	m_pNext = (u8 *) nBase;
 	m_pLimit = (u8 *) (nBase + nSize);
 	m_nReserve = nReserve;
+
+#ifdef HEAP_LARGE_BLOCK_REUSE
+	for (unsigned i = 0; i < HEAP_LARGE_LISTS; i++)
+	{
+		m_pLargeFreeList[i] = 0;
+	}
+#endif
 }
+
+#ifdef HEAP_LARGE_BLOCK_REUSE
+
+// Rounds a block size up to HEAP_BLOCK_ALIGN << n, returns n (-1 if too big)
+static int LargeBlockClass (size_t *pnSize)
+{
+	size_t nRounded = HEAP_BLOCK_ALIGN;
+	int nClass = 0;
+	while (nRounded < *pnSize)
+	{
+		nRounded <<= 1;
+		if (++nClass >= HEAP_LARGE_LISTS)
+		{
+			return -1;
+		}
+	}
+
+	*pnSize = nRounded;
+
+	return nClass;
+}
+
+#endif
 
 size_t CHeapAllocator::GetFreeSpace (void) const
 {
@@ -96,6 +126,14 @@ void *CHeapAllocator::DoAllocate (size_t nSize)
 		}
 	}
 
+#ifdef HEAP_LARGE_BLOCK_REUSE
+	int nLargeClass = -1;
+	if (pBucket->nSize == 0)
+	{
+		nLargeClass = LargeBlockClass (&nSize);
+	}
+#endif
+
 	THeapBlockHeader *pBlockHeader;
 	if (   pBucket->nSize > 0
 	    && (pBlockHeader = pBucket->pFreeList) != 0)
@@ -103,6 +141,14 @@ void *CHeapAllocator::DoAllocate (size_t nSize)
 		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
 		pBucket->pFreeList = pBlockHeader->pNext;
 	}
+#ifdef HEAP_LARGE_BLOCK_REUSE
+	else if (   nLargeClass >= 0
+		 && (pBlockHeader = m_pLargeFreeList[nLargeClass]) != 0)
+	{
+		assert (pBlockHeader->nMagic == HEAP_BLOCK_FREE_MAGIC);
+		m_pLargeFreeList[nLargeClass] = pBlockHeader->pNext;
+	}
+#endif
 	else
 	{
 		pBlockHeader = (THeapBlockHeader *) m_pNext;
@@ -236,6 +282,23 @@ void CHeapAllocator::DoFree (void *pBlock)
 			return;
 		}
 	}
+
+#ifdef HEAP_LARGE_BLOCK_REUSE
+	size_t nSize = pBlockHeader->nSize;
+	int nLargeClass = LargeBlockClass (&nSize);
+	if (   nLargeClass >= 0
+	    && nSize == pBlockHeader->nSize)
+	{
+		m_SpinLock.Acquire ();
+
+		pBlockHeader->pNext = m_pLargeFreeList[nLargeClass];
+		m_pLargeFreeList[nLargeClass] = pBlockHeader;
+
+		m_SpinLock.Release ();
+
+		return;
+	}
+#endif
 
 #ifdef HEAP_DEBUG
 	CLogger::Get ()->Write (m_pHeapName, LogDebug, "Trying to free large block (size %u)",
