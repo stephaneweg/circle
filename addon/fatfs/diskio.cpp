@@ -25,15 +25,11 @@
 /* Static Data                                                           */
 /*-----------------------------------------------------------------------*/
 
-// (Onyx) the SD card's partitions (Circle's partition manager names them emmc1-1..-4, the
-// FAT ones and the others alike, in the MBR's order); a card without an MBR (one FAT volume
-// on the whole card): emmc1 for the first
+// (Onyx) the physical drives (FF_MULTI_PARTITION: the volumes SD, SD1..SD3 are partitions of
+// emmc1, VolToPart below; the whole card is read as before, FatFs finding its partitions)
 static const char *s_pVolumeName[FF_VOLUMES] =
 {
-	"emmc1-1",
-	"emmc1-2",
-	"emmc1-3",
-	"emmc1-4",
+	"emmc1",
 	"umsd1",
 	"umsd2",
 	"umsd3",
@@ -41,14 +37,18 @@ static const char *s_pVolumeName[FF_VOLUMES] =
 	"nvme1"
 };
 
+// volume -> (physical drive, partition): SD = the first FAT volume of the card (as before),
+// SD1..SD3 = MBR partitions 2..4, then one volume per other drive
+PARTITION VolToPart[FF_VOLUMES] =
+{
+	{0, 0}, {0, 2}, {0, 3}, {0, 4},
+	{1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}
+};
+
 static CDevice *volume_device (BYTE pdrv)
 {
-	CDevice *pDevice = CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
-	if (pDevice == 0 && pdrv == 0)
-	{
-		pDevice = CDeviceNameService::Get ()->GetDevice ("emmc1", TRUE);
-	}
-	return pDevice;
+	if (pdrv >= FF_VOLUMES || s_pVolumeName[pdrv] == 0) return 0;
+	return CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
 }
 
 static CDevice *s_pVolume[FF_VOLUMES] = {0};
@@ -198,6 +198,10 @@ DSTATUS disk_initialize (
 		return STA_NOINIT;
 	}
 
+	if (s_pVolume[pdrv] != 0 && s_pVolume[pdrv] == volume_device (pdrv))
+	{
+		return 0;				/* (Onyx) already: another partition of the drive */
+	}
 	dc_forget_drive (pdrv);				/* (Onyx) maybe another medium */
 	s_pVolume[pdrv] = volume_device (pdrv);
 	if (s_pVolume[pdrv] != 0)
