@@ -218,6 +218,22 @@ public:
 	/// \brief If VSync is enabled, this method is blocking until the screen refresh signal is received (every 16ms for 60FPS refresh rate)
 	void UpdateDisplay (void);
 
+	/// \brief Copies only a rectangle of the offscreen buffer to the display (a partial
+	///	   update: much less memory traffic than the whole screen for small changes)
+	/// \param nPosX X of the top-left corner
+	/// \param nPosY Y of the top-left corner
+	/// \param nWidth Width in pixels
+	/// \param nHeight Height in pixels
+	/// \note With VSync (page flipping) or a non-framebuffer display this updates the
+	///	  whole screen.
+	void UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight);
+
+	/// \brief The same without waiting: the DMA reads the rectangle in place, pRoutine
+	///	   is called (from its interrupt) when it is done -- the buffer must not change
+	///	   there until then. The whole screen with nWidth = 0.
+	void UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight,
+				 CDisplay::TAreaCompletionRoutine *pRoutine, void *pParam);
+
 private:
 	void SetPixel (unsigned nX, unsigned nY, CDisplay::TRawColor nColor)
 	{

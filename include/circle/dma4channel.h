@@ -67,6 +67,11 @@ public:
 	// each block on destination, source is continuous, destination cache is not touched
 	// nBurstLength > 0 increases speed, but may congest the system bus
 	// (this method is not supported with DMA_CHANNEL_LITE)
+	// the same with a source stride too: a rectangle of a bigger image, no gathering
+	void SetupMemCopy2D (void *pDestination, const void *pSource,
+			     size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
+			     unsigned nBurstLength, size_t nSourceStride);
+
 	void SetupMemCopy2D (void *pDestination, const void *pSource,
 			     size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
 			     unsigned nBurstLength = 0);

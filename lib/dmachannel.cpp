@@ -368,6 +368,60 @@ void CDMAChannel::SetupMemCopy2D (void *pDestination, const void *pSource,
 	m_nBuffers = 1;
 }
 
+// a rectangle of a bigger source image
+void CDMAChannel::SetupMemCopy2D (void *pDestination, const void *pSource,
+				  size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
+				  unsigned nBurstLength, size_t nSourceStride)
+{
+#if RASPPI >= 4
+	if (m_pDMA4Channel != 0)
+	{
+		m_pDMA4Channel->SetupMemCopy2D (pDestination, pSource, nBlockLength,
+						nBlockCount, nBlockStride, nBurstLength, nSourceStride);
+
+		return;
+	}
+#endif
+
+	assert (pDestination != 0);
+	assert (pSource != 0);
+	assert (nBlockLength > 0);
+	assert (nBlockLength <= 0xFFFF);
+	assert (nBlockCount > 0);
+	assert (nBlockCount <= 0x3FFF);
+	assert (nBlockStride <= 0x7FFF);
+	assert (nSourceStride <= 0x7FFF);
+	assert (nBurstLength <= 15);
+
+	assert (!(read32 (ARM_DMACHAN_DEBUG (m_nChannel)) & DEBUG_LITE));
+
+	assert (m_pControlBlock[0] != 0);
+
+	m_pControlBlock[0]->nTransferInformation     =   (nBurstLength << TI_BURST_LENGTH_SHIFT)
+						       | TI_SRC_WIDTH
+						       | TI_SRC_INC
+						       | TI_DEST_WIDTH
+						       | TI_DEST_INC
+						       | TI_TDMODE;
+	m_pControlBlock[0]->nSourceAddress           = BUS_ADDRESS ((uintptr) pSource);
+	m_pControlBlock[0]->nDestinationAddress      = BUS_ADDRESS ((uintptr) pDestination);
+	m_pControlBlock[0]->nTransferLength          =   ((nBlockCount-1) << TXFR_LEN_YLENGTH_SHIFT)
+						       | (nBlockLength << TXFR_LEN_XLENGTH_SHIFT);
+	m_pControlBlock[0]->n2DModeStride            =   (nBlockStride << STRIDE_DEST_SHIFT)
+						       | (nSourceStride << STRIDE_SRC_SHIFT);
+	m_pControlBlock[0]->nNextControlBlockAddress = 0;
+
+	m_nDestinationAddress = 0;
+
+	uintptr ulRow = (uintptr) pSource;
+	for (unsigned i = 0; i < nBlockCount; i++, ulRow += nBlockLength + nSourceStride)
+	{
+		CleanDataCacheRange (ulRow, nBlockLength);
+	}
+
+	m_nBuffers = 1;
+}
+
 void CDMAChannel::SetCompletionRoutine (TDMACompletionRoutine *pRoutine, void *pParam)
 {
 #if RASPPI >= 4

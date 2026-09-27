@@ -537,6 +537,66 @@ CDisplay *C2DGraphics::GetDisplay (void)
 	return m_pDisplay;
 }
 
+void C2DGraphics::UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)
+{
+#if RASPPI <= 4
+	if (m_bVSync)
+	{
+		UpdateDisplay ();
+		return;
+	}
+#endif
+	if (!m_pFrameBuffer || m_pDisplay != m_pFrameBuffer)	// (another kind of display)
+	{
+		UpdateDisplay ();
+		return;
+	}
+
+	if (nPosX >= m_nWidth || nPosY >= m_nHeight || !nWidth || !nHeight)
+	{
+		return;
+	}
+	if (nWidth > m_nWidth - nPosX)
+	{
+		nWidth = m_nWidth - nPosX;
+	}
+	if (nHeight > m_nHeight - nPosY)
+	{
+		nHeight = m_nHeight - nPosY;
+	}
+
+	// the frame buffer's 2D DMA reads the rectangle in place (a source stride: no gathering)
+	unsigned nBytes = m_nDepth / 8;
+	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
+	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes);
+}
+
+void C2DGraphics::UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight,
+				      CDisplay::TAreaCompletionRoutine *pRoutine, void *pParam)
+{
+	if (!nWidth) { nPosX = nPosY = 0; nWidth = m_nWidth; nHeight = m_nHeight; }
+#if RASPPI <= 4
+	if (m_bVSync)
+	{
+		UpdateDisplay ();
+		(*pRoutine) (pParam);
+		return;
+	}
+#endif
+	if (!m_pFrameBuffer || m_pDisplay != m_pFrameBuffer || nPosX >= m_nWidth || nPosY >= m_nHeight || !nHeight)
+	{
+		UpdateDisplay (nPosX, nPosY, nWidth, nHeight);
+		(*pRoutine) (pParam);
+		return;
+	}
+	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
+	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+	unsigned nBytes = m_nDepth / 8;
+	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
+	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes,
+				      pRoutine, pParam);
+}
+
 void C2DGraphics::UpdateDisplay (void)
 {
 #if RASPPI <= 4
