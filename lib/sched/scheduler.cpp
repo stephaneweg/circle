@@ -388,20 +388,16 @@ void CScheduler::WakeTasks (CTask **ppWaitListHead)
 
 	while (pTask)
 	{
-#ifdef NDEBUG
-		if (   pTask == 0
-		    ||    (pTask->GetState () != TaskStateBlocked
-		       && pTask->GetState () != TaskStateBlockedWithTimeout))
+		// A task, which waits with a timeout, is set ready by GetNextTask() when the
+		// timeout expires, but it remains on the wait list until it runs again and removes
+		// itself in BlockTask(). If the event is set in this window (e.g. from an interrupt
+		// handler), the task is not blocked any more. It has been woken already, so it is
+		// only removed from the list here.
+		if (   pTask->GetState () == TaskStateBlocked
+		    || pTask->GetState () == TaskStateBlockedWithTimeout)
 		{
-			CLogger::Get ()->Write (FromScheduler, LogPanic, "Tried to wake non-blocked task");
+			pTask->SetState (TaskStateReady);
 		}
-#else
-		assert (pTask != 0);
-		assert (   pTask->GetState () == TaskStateBlocked
-		        || pTask->GetState () == TaskStateBlockedWithTimeout);
-#endif
-
-		pTask->SetState (TaskStateReady);
 
 		CTask* pNext = pTask->m_pWaitListNext;
 		pTask->m_pWaitListNext = 0;
