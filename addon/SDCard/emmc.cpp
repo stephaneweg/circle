@@ -2162,7 +2162,7 @@ int CEMMCDevice::CardReset (void)
 		if (m_pSCR->sd_version >= SD_VER_1_1)
 		{
 			// 512 bit response
-			u8 cmd6_resp[64];
+			u8 cmd6_resp[64] __attribute__ ((aligned (4)));	// read word by word
 			m_buf = &cmd6_resp[0];
 			m_block_size = 64;
 
@@ -2192,6 +2192,11 @@ int CEMMCDevice::CardReset (void)
 					{
 						// Success; switch clock to 50MHz
 #ifndef USE_SDHOST
+						// Set the host's High Speed Enable bit first (CONTROL0 bit 2,
+						// HCTL_HS_EN in the SD Host Controller spec), so that it samples
+						// with the High Speed timing
+						u32 control0 = read32 (EMMC_CONTROL0);
+						write32 (EMMC_CONTROL0, control0 | (1 << 2));
 						SwitchClockRate (base_clock, SD_CLOCK_HIGH);
 #else
 						m_Host.SetClock (SD_CLOCK_HIGH);
