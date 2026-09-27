@@ -25,16 +25,31 @@
 /* Static Data                                                           */
 /*-----------------------------------------------------------------------*/
 
+// (Onyx) the SD card's partitions (Circle's partition manager names them emmc1-1..-4, the
+// FAT ones and the others alike, in the MBR's order); a card without an MBR (one FAT volume
+// on the whole card): emmc1 for the first
 static const char *s_pVolumeName[FF_VOLUMES] =
 {
-	"emmc1",
-	"emmc2",
+	"emmc1-1",
+	"emmc1-2",
+	"emmc1-3",
+	"emmc1-4",
 	"umsd1",
 	"umsd2",
 	"umsd3",
 	"ufd1",
 	"nvme1"
 };
+
+static CDevice *volume_device (BYTE pdrv)
+{
+	CDevice *pDevice = CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
+	if (pDevice == 0 && pdrv == 0)
+	{
+		pDevice = CDeviceNameService::Get ()->GetDevice ("emmc1", TRUE);
+	}
+	return pDevice;
+}
 
 static CDevice *s_pVolume[FF_VOLUMES] = {0};
 
@@ -184,7 +199,7 @@ DSTATUS disk_initialize (
 	}
 
 	dc_forget_drive (pdrv);				/* (Onyx) maybe another medium */
-	s_pVolume[pdrv] = CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
+	s_pVolume[pdrv] = volume_device (pdrv);
 	if (s_pVolume[pdrv] != 0)
 	{
 		s_pVolume[pdrv]->RegisterRemovedHandler (disk_removed, &s_pVolume[pdrv]);
@@ -381,7 +396,7 @@ DRESULT disk_ioctl (
 			}
 
 			CDevice *pDevice =
-				CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
+				volume_device (pdrv);
 			if (pDevice != 0)
 			{
 				u64 ullSize = pDevice->GetSize ();
@@ -407,7 +422,7 @@ DRESULT disk_ioctl (
 			}
 
 			CDevice *pDevice =
-				CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
+				volume_device (pdrv);
 			if (pDevice != 0)
 			{
 				/* This fails, if unsupported, so ignore eventual errors. */
@@ -433,7 +448,7 @@ DRESULT disk_ioctl (
 
 		if (s_pVolume[pdrv] == 0)
 		{
-			s_pVolume[pdrv] = CDeviceNameService::Get ()->GetDevice (s_pVolumeName[pdrv], TRUE);
+			s_pVolume[pdrv] = volume_device (pdrv);
 			if (s_pVolume[pdrv] == 0)
 			{
 				return RES_NOTRDY;

@@ -178,12 +178,12 @@
 / Drive/Volume Configurations
 /---------------------------------------------------------------------------*/
 
-#define FF_VOLUMES		7
+#define FF_VOLUMES		9
 /* Number of volumes (logical drives) to be used. (1-10) */
 
 
 #define FF_STR_VOLUME_ID	1
-#define FF_VOLUME_STRS		"SD","SD2","USB","USB2","USB3","FD","NVME"
+#define FF_VOLUME_STRS		"SD","SD1","SD2","SD3","USB","USB2","USB3","FD","NVME"	/* (Onyx) SD..SD3: the SD card's partitions 1..4 */
 /* FF_STR_VOLUME_ID switches support for volume ID in arbitrary strings.
 /  When FF_STR_VOLUME_ID is set to 1 or 2, arbitrary strings can be used as drive
 /  number in the path name. FF_VOLUME_STRS defines the volume ID strings for each
@@ -243,7 +243,7 @@
 /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
 
 
-#define FF_FS_EXFAT		0
+#define FF_FS_EXFAT		1	/* (Onyx) on: the user partitions (ROMs, big files > 4 GB) */
 /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
 /  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
 /  Note that enabling exFAT discards ANSI C (C89) compatibility. */

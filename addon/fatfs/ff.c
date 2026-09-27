@@ -4185,9 +4185,14 @@ FRESULT f_write (
 				/* Onyx: go on across the next clusters (followed, or allocated as the file
 				   grows) while they follow on the disk: one multi-sector write. A cluster
 				   allocated here that does not follow stays in the chain: the next turn of
-				   the loop finds it, as it would have allocated it. */
+				   the loop finds it, as it would have allocated it. Not on exFAT: a
+				   contiguous file turning fragmented there is recorded later (its FAT
+				   filled at the end), and its big clusters make it matter little. */
 #if FF_USE_FASTSEEK
 				if (!fp->cltbl)
+#endif
+#if FF_FS_EXFAT
+				if (fs->fs_type != FS_EXFAT)
 #endif
 				{
 					DWORD cl = fp->clust;
