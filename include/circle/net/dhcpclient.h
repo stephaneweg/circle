@@ -39,6 +39,11 @@ enum TDHCPStatus
 class CDHCPClient : public CTask
 {
 public:
+	/// \brief Drop the lease and request a new one at once (e.g. the WLAN has joined\n
+	///	   another network); takes effect within 0.5 seconds in the bound state
+	static void Restart (void) { s_bRestart = TRUE; }
+	static volatile boolean s_bRestart;
+
 	CDHCPClient (CNetSubSystem *pNetSubSystem, const char *pHostname);
 	~CDHCPClient (void);
 

@@ -125,6 +125,8 @@ CDHCPClient::~CDHCPClient (void)
 	m_pNetSubSystem = 0;
 }
 
+volatile boolean CDHCPClient::s_bRestart = FALSE;
+
 void CDHCPClient::Run (void)
 {
 	if (m_Socket.Bind (DHCP_PORT_CLIENT) < 0)
@@ -139,6 +141,7 @@ void CDHCPClient::Run (void)
 	while (1)
 	{
 	InitState:
+		s_bRestart = FALSE;
 		switch (SelectAndRequest ())
 		{
 		case DHCPStatusSuccess:
@@ -167,7 +170,19 @@ void CDHCPClient::Run (void)
 				CScheduler::Get ()->Yield ();
 			}
 
-			CScheduler::Get ()->Sleep (10);
+			for (int k = 0; k < 20 && !s_bRestart; k++)	// 10 seconds, a restart seen at once
+			{
+				CScheduler::Get ()->MsSleep (500);
+			}
+			if (s_bRestart)
+			{
+				break;
+			}
+		}
+		if (s_bRestart)
+		{
+			HaltNetwork ();
+			goto InitState;
 		}
 
 	//RenewingState:
