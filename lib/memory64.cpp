@@ -183,6 +183,8 @@ void CMemorySystem::AddHighSegment (uintptr nBase, size_t nSize)
 // relocated chunk >4GB, bounded to firmware-declared RAM (never the MMIO window). (B) If the
 // DTB is unavailable (not captured) or yields nothing >4GB, fall back to GetRAMSize and map
 // [4GB, totalRAM) -- provably real RAM (see below). Safe no-op on <=4GB boards.
+u64 g_ulOnyxCrashArea = 0;
+
 void CMemorySystem::SetupHighMemAbove4G (void)
 {
 	if (m_pTranslationTable == 0)			// MMU disabled -> cannot add mappings
@@ -241,6 +243,13 @@ void CMemorySystem::SetupHighMemAbove4G (void)
 		if (!m_pTranslationTable->MapRangeNormal (nBase, nSize))
 		{
 			continue;
+		}
+		// Onyx: the top 64 KB of the [3GB, RAMtop) low-RAM top stay out of the heap: the
+		// kernel's crash record (kern/crashlog.h), read back after a watchdog reboot.
+		if (nBase == kReclaimStart && nSize >= 0x100000 && g_ulOnyxCrashArea == 0)
+		{
+			nSize -= ONYX_CRASH_AREA_SIZE;
+			g_ulOnyxCrashArea = nBase + nSize;
 		}
 		AddHighSegment ((uintptr) nBase, (size_t) nSize);
 		if (nBase >= 0x100000000ULL)			// count only the genuine >4GB part

@@ -492,6 +492,27 @@ void CDMAChannel::Start (void)
 	PeripheralExit ();
 }
 
+// (Onyx) Wait () without waiting: TRUE once the transfer is over (then as Wait ()). For a
+// caller that yields between the polls instead of relying on the completion interrupt.
+boolean CDMAChannel::Poll (void)
+{
+#if RASPPI >= 4
+	if (m_pDMA4Channel != 0)
+	{
+		return m_pDMA4Channel->Poll ();
+	}
+#endif
+	PeripheralEntry ();
+	u32 nCS = read32 (ARM_DMACHAN_CS (m_nChannel));
+	PeripheralExit ();
+	if (nCS & CS_ACTIVE)
+	{
+		return FALSE;
+	}
+	Wait ();
+	return TRUE;
+}
+
 boolean CDMAChannel::Wait (void)
 {
 #if RASPPI >= 4

@@ -218,6 +218,40 @@ void CBcmFrameBuffer::SetPixel (unsigned nPosX, unsigned nPosY, TRawColor nColor
 }
 
 // (Onyx) the source rectangle in place in a bigger image (nSourcePitch bytes a line)
+// (Onyx) SetAreaPitch's DMA started and left running, no interrupt: SetAreaPoll () says when it is
+// over (the caller yields meanwhile). FALSE: done at once (no DMA).
+boolean CBcmFrameBuffer::SetAreaPitchStart (const TArea &rArea, const void *pPixels, unsigned nSourcePitch)
+{
+#ifdef SCREEN_DMA_BURST_LENGTH
+	u32 x1 = rArea.x1, x2 = rArea.x2, y1 = rArea.y1, y2 = rArea.y2;
+	size_t ulBlockLength = (x2-x1+1) * m_nDepth/8;
+	while (AtomicCompareExchange (&m_nDMAInUse, 0, 1))
+	{
+	}
+	void *pDestination = (void *) (uintptr) (m_nBufferPtr + y1*m_nPitch + x1*m_nDepth/8);
+	m_DMAChannel.SetupMemCopy2D (pDestination, pPixels, ulBlockLength, y2-y1+1,
+				     m_nPitch-ulBlockLength, SCREEN_DMA_BURST_LENGTH,
+				     nSourcePitch-ulBlockLength);
+	m_DMAChannel.Start ();
+	return TRUE;
+#else
+	SetAreaPitch (rArea, pPixels, nSourcePitch);
+	return FALSE;
+#endif
+}
+
+boolean CBcmFrameBuffer::SetAreaPoll (void)
+{
+#ifdef SCREEN_DMA_BURST_LENGTH
+	if (!m_DMAChannel.Poll ())
+	{
+		return FALSE;
+	}
+	AtomicSet (&m_nDMAInUse, 0);
+#endif
+	return TRUE;
+}
+
 void CBcmFrameBuffer::SetAreaPitch (const TArea &rArea, const void *pPixels, unsigned nSourcePitch,
 				    TAreaCompletionRoutine *pRoutine, void *pParam)
 {

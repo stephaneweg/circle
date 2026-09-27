@@ -61,6 +61,10 @@ public:
 	void SetAreaPitch (const TArea &rArea, const void *pPixels, unsigned nSourcePitch,
 			   TAreaCompletionRoutine *pRoutine = nullptr,
 			   void *pParam = nullptr);
+	// (Onyx) the same DMA started without an interrupt; SetAreaPoll () is TRUE once it is over
+	// (the caller yields meanwhile). SetAreaPitchStart: FALSE if it was done at once.
+	boolean SetAreaPitchStart (const TArea &rArea, const void *pPixels, unsigned nSourcePitch);
+	boolean SetAreaPoll (void);
 
 	u32 GetWidth (void) const;
 	u32 GetHeight (void) const;

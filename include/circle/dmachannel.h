@@ -126,6 +126,8 @@ public:
 	/// \return Has the transfer been successful?
 	/// \note This is for synchronous calls without completion routine (non-cyclic only).
 	boolean Wait (void);
+	/// \brief (Onyx) TRUE once the transfer is over (then as Wait ()), FALSE while it runs
+	boolean Poll (void);
 
 	/// \brief Get status of the DMA transfer, to be called in the completion routine
 	/// \return Has the transfer been successful?

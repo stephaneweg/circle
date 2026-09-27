@@ -31,6 +31,10 @@
 #include <circle/sysconfig.h>
 #include <circle/types.h>
 
+// Onyx: 64 KB of RAM kept out of the heap (0: none), for the kernel's crash record
+#define ONYX_CRASH_AREA_SIZE	0x10000
+extern u64 g_ulOnyxCrashArea;
+
 class CMemorySystem
 {
 public:

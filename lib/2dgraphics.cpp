@@ -597,6 +597,33 @@ void C2DGraphics::UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned n
 				      pRoutine, pParam);
 }
 
+boolean C2DGraphics::UpdateDisplayStart (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)
+{
+	if (!nWidth) { nPosX = nPosY = 0; nWidth = m_nWidth; nHeight = m_nHeight; }
+#if RASPPI <= 4
+	if (m_bVSync)
+	{
+		UpdateDisplay ();
+		return FALSE;
+	}
+#endif
+	if (!m_pFrameBuffer || m_pDisplay != m_pFrameBuffer || nPosX >= m_nWidth || nPosY >= m_nHeight || !nHeight)
+	{
+		UpdateDisplay (nPosX, nPosY, nWidth, nHeight);
+		return FALSE;
+	}
+	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
+	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+	unsigned nBytes = m_nDepth / 8;
+	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
+	return m_pFrameBuffer->SetAreaPitchStart (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes);
+}
+
+boolean C2DGraphics::UpdateDisplayPoll (void)
+{
+	return !m_pFrameBuffer || m_pFrameBuffer->SetAreaPoll ();
+}
+
 void C2DGraphics::UpdateDisplay (void)
 {
 #if RASPPI <= 4

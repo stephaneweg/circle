@@ -234,6 +234,12 @@ public:
 	void UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight,
 				 CDisplay::TAreaCompletionRoutine *pRoutine, void *pParam);
 
+	/// \brief (Onyx) The same without an interrupt: UpdateDisplayStart starts the DMA (FALSE:
+	///	   done at once), UpdateDisplayPoll is TRUE once it is over -- the caller yields
+	///	   between the polls, and the buffer must not change there until then.
+	boolean UpdateDisplayStart (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight);
+	boolean UpdateDisplayPoll (void);
+
 private:
 	void SetPixel (unsigned nX, unsigned nY, CDisplay::TRawColor nColor)
 	{

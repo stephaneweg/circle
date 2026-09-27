@@ -79,7 +79,8 @@ public:
 	void SetCompletionRoutine (TDMACompletionRoutine *pRoutine, void *pParam);
 
 	void Start (void);
-	boolean Wait (void);		// for synchronous call without completion routine
+	boolean Wait (void);
+	boolean Poll (void);			// (Onyx) Wait () without waiting: TRUE once over		// for synchronous call without completion routine
 	boolean GetStatus (void);
 
 	void Cancel (void);

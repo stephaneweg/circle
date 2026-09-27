@@ -541,6 +541,20 @@ boolean CDMA4Channel::Wait (void)
 	return m_bStatus;
 }
 
+// (Onyx) Wait () without waiting: TRUE once the transfer is over (then as Wait ())
+boolean CDMA4Channel::Poll (void)
+{
+	PeripheralEntry ();
+	u32 nCS = read32 (ARM_DMA4CHAN_CS (m_nChannel));
+	PeripheralExit ();
+	if (nCS & CS4_ACTIVE)
+	{
+		return FALSE;
+	}
+	Wait ();
+	return TRUE;
+}
+
 boolean CDMA4Channel::GetStatus (void)
 {
 	assert (m_nChannel >= DMA4_CHANNEL_MIN);
