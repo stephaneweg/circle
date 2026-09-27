@@ -37,6 +37,7 @@ public:
 	~CSpinLock (void);
 
 	void Acquire (void);
+	boolean TryAcquire (void);	// (Onyx)
 	void Release (void);
 
 	static void Enable (void);
@@ -65,6 +66,12 @@ public:
 		{
 			EnterCritical (m_nTargetLevel);
 		}
+	}
+
+	boolean TryAcquire (void)	// (Onyx)
+	{
+		Acquire ();
+		return TRUE;
 	}
 
 	void Release (void)

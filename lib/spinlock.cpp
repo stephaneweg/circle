@@ -91,6 +91,51 @@ void CSpinLock::Acquire (void)
 	}
 }
 
+// Onyx: one try (FALSE: taken elsewhere, nothing held). A core that must not wait for ever
+// on a lock another core may hold (the crash watch on core 1) loops on it with its own checks.
+boolean CSpinLock::TryAcquire (void)
+{
+	if (m_nTargetLevel >= IRQ_LEVEL)
+	{
+		EnterCritical (m_nTargetLevel);
+	}
+
+	if (s_bEnabled)
+	{
+#if AARCH == 32
+		Acquire ();		// (not needed on AArch32)
+#else
+		u32 nFail;
+		asm volatile
+		(
+			"mov x1, %1\n"
+			"mov w2, #1\n"
+			"1: ldaxr w3, [x1]\n"
+			"cbnz w3, 2f\n"
+			"stxr w3, w2, [x1]\n"
+			"cbnz w3, 1b\n"
+			"mov %w0, #0\n"
+			"b 3f\n"
+			"2: clrex\n"
+			"mov %w0, #1\n"
+			"3:\n"
+
+			: "=r" (nFail) : "r" ((uintptr) &m_nLocked) : "x1", "x2", "x3", "memory"
+		);
+		if (nFail)
+		{
+			if (m_nTargetLevel >= IRQ_LEVEL)
+			{
+				LeaveCritical ();
+			}
+			return FALSE;
+		}
+#endif
+	}
+
+	return TRUE;
+}
+
 void CSpinLock::Release (void)
 {
 	if (s_bEnabled)

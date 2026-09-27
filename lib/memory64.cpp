@@ -244,9 +244,9 @@ void CMemorySystem::SetupHighMemAbove4G (void)
 		{
 			continue;
 		}
-		// Onyx: the top 64 KB of the [3GB, RAMtop) low-RAM top stay out of the heap: the
+		// Onyx: the top 64 KB of the first segment above 3 GB stay out of the heap: the
 		// kernel's crash record (kern/crashlog.h), read back after a watchdog reboot.
-		if (nBase == kReclaimStart && nSize >= 0x100000 && g_ulOnyxCrashArea == 0)
+		if (nSize >= 0x100000 && g_ulOnyxCrashArea == 0)
 		{
 			nSize -= ONYX_CRASH_AREA_SIZE;
 			g_ulOnyxCrashArea = nBase + nSize;
@@ -273,6 +273,11 @@ void CMemorySystem::SetupHighMemAbove4G (void)
 			nSize &= ~0xFFFFULL;				// 64KB-align (defensive)
 			if (nSize != 0 && m_pTranslationTable->MapRangeNormal (nBase, nSize))
 			{
+				if (g_ulOnyxCrashArea == 0 && nSize >= 0x100000)	// (Onyx: the crash area)
+				{
+					nSize -= ONYX_CRASH_AREA_SIZE;
+					g_ulOnyxCrashArea = nBase + nSize;
+				}
 				AddHighSegment ((uintptr) nBase, (size_t) nSize);
 				m_nMemSizeHigh4G += (size_t) nSize;
 			}
