@@ -39,6 +39,10 @@ enum TDHCPStatus
 class CDHCPClient : public CTask
 {
 public:
+	// (Onyx) drop the lease and ask again (the Wi-Fi joined another network)
+	static void Restart (void) { s_bRestart = TRUE; }
+	static volatile boolean s_bRestart;
+
 	CDHCPClient (CNetSubSystem *pNetSubSystem, const char *pHostname);
 	~CDHCPClient (void);
 
