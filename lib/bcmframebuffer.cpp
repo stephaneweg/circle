@@ -217,6 +217,49 @@ void CBcmFrameBuffer::SetPixel (unsigned nPosX, unsigned nPosY, TRawColor nColor
 	}
 }
 
+// (Onyx) the source rectangle in place in a bigger image (nSourcePitch bytes a line)
+void CBcmFrameBuffer::SetAreaPitch (const TArea &rArea, const void *pPixels, unsigned nSourcePitch,
+				    TAreaCompletionRoutine *pRoutine, void *pParam)
+{
+	u32 x1 = rArea.x1, x2 = rArea.x2, y1 = rArea.y1, y2 = rArea.y2;
+	size_t ulBlockLength = (x2-x1+1) * m_nDepth/8;
+#ifdef SCREEN_DMA_BURST_LENGTH
+	while (AtomicCompareExchange (&m_nDMAInUse, 0, 1))
+	{
+	}
+
+	void *pDestination = (void *) (uintptr) (m_nBufferPtr + y1*m_nPitch + x1*m_nDepth/8);
+	m_DMAChannel.SetupMemCopy2D (pDestination, pPixels, ulBlockLength, y2-y1+1,
+				     m_nPitch-ulBlockLength, SCREEN_DMA_BURST_LENGTH,
+				     nSourcePitch-ulBlockLength);
+	if (pRoutine)
+	{
+		m_pCompletionRoutine = pRoutine;
+		m_pCompletionParam = pParam;
+
+		m_DMAChannel.SetCompletionRoutine (DMACompletionRoutine, this);
+		m_DMAChannel.Start ();
+	}
+	else
+	{
+		m_DMAChannel.Start ();
+		m_DMAChannel.Wait ();
+
+		AtomicSet (&m_nDMAInUse, 0);
+	}
+#else
+	const u8 *q = static_cast<const u8 *> (pPixels);
+	for (u32 y = y1; y <= y2; y++, q += nSourcePitch)
+	{
+		memcpy (PTR_ADD (u8 *, m_nBufferPtr, x1*m_nDepth/8, y*m_nPitch), q, ulBlockLength);
+	}
+	if (pRoutine)
+	{
+		(*pRoutine) (pParam);
+	}
+#endif
+}
+
 void CBcmFrameBuffer::SetArea (const TArea &rArea, const void *pPixels,
 			       TAreaCompletionRoutine *pRoutine, void *pParam)
 {

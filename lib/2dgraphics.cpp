@@ -565,29 +565,36 @@ void C2DGraphics::UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth
 		nHeight = m_nHeight - nPosY;
 	}
 
-	// Gather the rectangle's rows into one contiguous block (cached memory: fast), then
-	// let the frame buffer copy it into place (its 2D DMA, as UpdateDisplay () does).
+	// (Onyx) the frame buffer's 2D DMA reads the rectangle in place (a source stride: no gathering)
 	unsigned nBytes = m_nDepth / 8;
-	static u8 *s_pArea = 0;
-	if (!s_pArea)
-	{
-		s_pArea = new u8[m_nWidth * m_nHeight * nBytes];
-		if (!s_pArea)
-		{
-			UpdateDisplay ();
-			return;
-		}
-	}
-	const u8 *pSrc = m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes;
-	u8 *pDst = s_pArea;
-	for (unsigned y = 0; y < nHeight; y++)
-	{
-		memcpy (pDst, pSrc, nWidth * nBytes);
-		pDst += nWidth * nBytes;
-		pSrc += m_nWidth * nBytes;
-	}
 	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
-	m_pFrameBuffer->SetArea (Area, s_pArea);
+	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes);
+}
+
+void C2DGraphics::UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight,
+				      CDisplay::TAreaCompletionRoutine *pRoutine, void *pParam)
+{
+	if (!nWidth) { nPosX = nPosY = 0; nWidth = m_nWidth; nHeight = m_nHeight; }
+#if RASPPI <= 4
+	if (m_bVSync)
+	{
+		UpdateDisplay ();
+		(*pRoutine) (pParam);
+		return;
+	}
+#endif
+	if (!m_pFrameBuffer || m_pDisplay != m_pFrameBuffer || nPosX >= m_nWidth || nPosY >= m_nHeight || !nHeight)
+	{
+		UpdateDisplay (nPosX, nPosY, nWidth, nHeight);
+		(*pRoutine) (pParam);
+		return;
+	}
+	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
+	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+	unsigned nBytes = m_nDepth / 8;
+	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
+	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes,
+				      pRoutine, pParam);
 }
 
 void C2DGraphics::UpdateDisplay (void)

@@ -56,6 +56,11 @@ public:
 	void SetArea (const TArea &rArea, const void *pPixels,
 		      TAreaCompletionRoutine *pRoutine = nullptr,
 		      void *pParam = nullptr);
+	// (Onyx) the pixels are a rectangle of a bigger image (nSourcePitch bytes a line): the DMA
+	// reads them in place (no gathering)
+	void SetAreaPitch (const TArea &rArea, const void *pPixels, unsigned nSourcePitch,
+			   TAreaCompletionRoutine *pRoutine = nullptr,
+			   void *pParam = nullptr);
 
 	u32 GetWidth (void) const;
 	u32 GetHeight (void) const;

@@ -228,6 +228,12 @@ public:
 	///	  whole screen.
 	void UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight);
 
+	/// \brief (Onyx) The same without waiting: the DMA reads the rectangle in place, pRoutine
+	///	   is called (from its interrupt) when it is done -- the buffer must not change
+	///	   there until then. The whole screen with nWidth = 0.
+	void UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight,
+				 CDisplay::TAreaCompletionRoutine *pRoutine, void *pParam);
+
 private:
 	void SetPixel (unsigned nX, unsigned nY, CDisplay::TRawColor nColor)
 	{

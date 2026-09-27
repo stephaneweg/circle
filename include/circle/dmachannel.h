@@ -107,6 +107,12 @@ public:
 			     size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
 			     unsigned nBurstLength = 0);
 
+	/// \brief (Onyx) The same, the source a rectangle too: nSourceStride bytes skipped after each
+	///	   of its blocks (only the blocks are cleaned from the data cache)
+	void SetupMemCopy2D (void *pDestination, const void *pSource,
+			     size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
+			     unsigned nBurstLength, size_t nSourceStride);
+
 	/// \brief Set completion routine to be called, when the transfer is finished
 	/// \param pRoutine Pointer to the completion routine
 	/// \param pParam   User parameter

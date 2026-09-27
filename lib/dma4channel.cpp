@@ -360,6 +360,56 @@ void CDMA4Channel::SetupCyclicIOWrite (uintptr ulIOAddress, const void *ppSource
 	m_nBufferLength = ulLength;
 }
 
+// (Onyx) the source is a rectangle too: nSourceStride bytes skipped after each of its blocks. Only the
+// blocks themselves are cleaned from the data cache.
+void CDMA4Channel::SetupMemCopy2D (void *pDestination, const void *pSource,
+				  size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
+				  unsigned nBurstLength, size_t nSourceStride)
+{
+	assert (pDestination != 0);
+	assert (pSource != 0);
+	assert (nBlockLength > 0);
+	assert (nBlockLength <= LEN4_XLENGTH_2D_MAX);
+	assert (nBlockCount > 0);
+	assert (nBlockCount <= LEN4_YLENGTH_MAX);
+	assert (nBlockStride <= DEST4_STRIDE_MAX);
+	assert (nSourceStride <= SOURCE4_STRIDE_MAX);
+	assert (nBurstLength <= BURST4_MAX);
+
+	assert (m_pControlBlock[0] != 0);
+
+	m_pControlBlock[0]->nTransferInformation     =   TI4_WAIT_RD_RESP
+						       | TI4_WAIT_RESP
+						       | TI4_TDMODE;
+	m_pControlBlock[0]->nSourceAddress           = ADDRESS4_LOW (pSource);
+	m_pControlBlock[0]->nSourceInformation	     =   (nSourceStride << SOURCE4_STRIDE_SHIFT)
+						       | (SIZE4_128 << SOURCE4_SIZE_SHIFT)
+						       | SOURCE4_INC
+						       | (nBurstLength << SOURCE4_BURST_LEN_SHIFT)
+						       |    (ADDRESS4_HIGH (pSource)
+						         << SOURCE4_ADDR_SHIFT);
+	m_pControlBlock[0]->nDestinationAddress      = ADDRESS4_LOW (pDestination);
+	m_pControlBlock[0]->nDestinationInformation  =   (nBlockStride << DEST4_STRIDE_SHIFT)
+						       | (SIZE4_128 << DEST4_SIZE_SHIFT)
+						       | DEST4_INC
+						       | (nBurstLength << DEST4_BURST_LEN_SHIFT)
+						       |    (ADDRESS4_HIGH (pDestination)
+						         << DEST4_ADDR_SHIFT);
+	m_pControlBlock[0]->nTransferLength          =   ((nBlockCount-1) << LEN4_YLENGTH_SHIFT)
+						       | (nBlockLength << LEN4_XLENGTH_SHIFT);
+	m_pControlBlock[0]->nNextControlBlockAddress = 0;
+
+	m_nDestinationAddress = 0;
+
+	uintptr ulRow = (uintptr) pSource;
+	for (unsigned i = 0; i < nBlockCount; i++, ulRow += nBlockLength + nSourceStride)
+	{
+		CleanDataCacheRange (ulRow, nBlockLength);
+	}
+
+	m_nBuffers = 1;
+}
+
 void CDMA4Channel::SetupMemCopy2D (void *pDestination, const void *pSource,
 				  size_t nBlockLength, unsigned nBlockCount, size_t nBlockStride,
 				  unsigned nBurstLength)
