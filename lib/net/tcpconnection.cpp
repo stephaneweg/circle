@@ -343,6 +343,18 @@ int CTCPConnection::Accept (CIPAddress *pForeignIP, u16 *pForeignPort)
 		break;
 	}
 
+	// Onyx: a peer gone (RST) between its SYN and the wake-up (a port scan: connect, then
+	// close at once) leaves the connection without a foreign address -- CIPAddress::Set
+	// asserted and the whole machine halted. That peer is simply not accepted.
+	if (m_nErrno < 0)
+	{
+		return m_nErrno;
+	}
+	if (!m_ForeignIP.IsSet ())
+	{
+		return -NET_ERROR_CONNECTION_RESET;
+	}
+
 	assert (pForeignIP != 0);
 	pForeignIP->Set (m_ForeignIP);
 
