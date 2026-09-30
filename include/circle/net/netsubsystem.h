@@ -56,6 +56,9 @@ public:
 	boolean IsRunning (void) const;			// is DHCP bound if used?
 
 	const char *GetHostname (void) const;
+	// Onyx: the name DHCP announces, read from SD:/etc/system.ini after the constructor ran
+	// (before Initialize (): the DHCP client takes it there).
+	void SetHostname (const char *pHostname) { m_Hostname = pHostname != 0 ? pHostname : ""; }
 
 	static CNetSubSystem *Get (void);
 
