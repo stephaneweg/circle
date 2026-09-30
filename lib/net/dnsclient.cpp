@@ -196,9 +196,15 @@ boolean CDNSClient::Resolve (const char *pHostname, CIPAddress *pIPAddress)
 			return FALSE;
 		}
 
-		CScheduler::Get ()->MsSleep (1000);
+		// Onyx: the answer polled every 5 ms (it comes in a few ms) for up to a second,
+		// not one second slept each time
+		nRecvSize = 0;
+		for (unsigned nWaited = 0; nWaited < 1000 && nRecvSize == 0; nWaited += 5)
+		{
+			CScheduler::Get ()->MsSleep (5);
 
-		nRecvSize = Socket.Receive (RecvBuffer, DNS_MAX_MESSAGE_SIZE, MSG_DONTWAIT);
+			nRecvSize = Socket.Receive (RecvBuffer, DNS_MAX_MESSAGE_SIZE, MSG_DONTWAIT);
+		}
 		assert (nRecvSize < DNS_MAX_MESSAGE_SIZE);
 		if (nRecvSize < 0)
 		{
