@@ -1311,8 +1311,19 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 			}
 			else if (le (nSEG_ACK, m_nSND_UNA))	// RFC 1122 section 4.2.2.20 (g)
 			{
-				OnDuplicateAck ();
-				
+				// Onyx: only a real duplicate ACK counts (RFC 5681 section 2): no data,
+				// no SYN / FIN (nSEG_LEN), the ACK number SND.UNA, the window unchanged,
+				// and data outstanding. The peer's own data segments (a remote desktop
+				// client's input messages) and pure window updates used to count too:
+				// three in a row started a spurious fast retransmit + fast recovery.
+				if (   nSEG_LEN == 0
+				    && nSEG_ACK == m_nSND_UNA
+				    && nSEG_WND == m_nSND_WND
+				    && FLIGHT_SIZE > 0)
+				{
+					OnDuplicateAck ();
+				}
+
 				// RFC 1122 section 4.2.2.20 (g)
 				if (bwlh (m_nSND_UNA, nSEG_ACK, m_nSND_NXT))
 				{
