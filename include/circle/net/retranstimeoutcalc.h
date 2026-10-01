@@ -36,6 +36,7 @@ public:
 
 	void SegmentSent (u32 nSequenceNumber, u32 nLength = 1);
 	void SegmentAcknowledged (u32 nAcknowledgmentNumber);
+	void SegmentResent (u32 nSequenceNumber);		// Onyx: sent again, no RTT sample
 
 	void RetransmissionTimerExpired (u32 nSegmentNumberExpected);
 

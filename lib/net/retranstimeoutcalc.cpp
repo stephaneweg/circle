@@ -25,8 +25,16 @@
 
 //#define RTO_DEBUG
 
-#define INITIAL_RTO		(3 * HZ)	// cannot return to 3 secs on data phase, so start with it
-#define MIN_RTO			(1 * HZ)
+// Onyx: the initial RTO is RFC 6298's 1 s (was 3 s, RFC 1122's), and the minimum is 200 ms
+// (was RFC 6298's conservative 1 s) -- Linux's TCP_RTO_MIN, for a LAN / Wi-Fi peer a few ms
+// away: one lost segment of a remote desktop stream stalled it a whole second. As in Linux,
+// the floor is on the variance term (RFC 6298's G, the "clock granularity", is 200 ms here):
+// RTO = SRTT + max (200 ms, 4 * RTTVAR), so a peer delaying its ACKs (Windows: up to 200 ms)
+// does not see spurious timeouts. The kernel timer ticks at HZ = 100: 200 ms = 20 ticks.
+// After a SYN retransmitted, RFC 6298 (5.7) wants the data phase to start at 3 s: the RTO is
+// then the backed-off one (2 s or more) until the first sample, which is close enough.
+#define INITIAL_RTO		(1 * HZ)
+#define MIN_RTO			MSEC2HZ (200)
 #define MAX_RTO			(120 * HZ)
 
 #define CLEAR_SRTT_AFTER	3		// retransmissions
@@ -34,7 +42,7 @@
 #define ALPHA			8
 #define BETA			4
 #define K			4
-#define G			1		// timer granularity in 1 HZ
+#define G			MIN_RTO		// Onyx: the variance term's floor (was 1 tick)
 
 #ifdef RTO_DEBUG
 static const char FromRTO[] = "tcprto";
@@ -149,6 +157,25 @@ void CRetransmissionTimeoutCalculator::SegmentAcknowledged (u32 nAcknowledgmentN
 #endif
 
 		Calculate (nRTT);
+	}
+
+	m_SpinLock.Release ();
+}
+
+void CRetransmissionTimeoutCalculator::SegmentResent (u32 nSequenceNumber)
+{
+	unsigned nHash = CalculateHash (nSequenceNumber);
+	assert (nHash < m_nSegmentMapSize);
+	TSegmentInfo &Info = m_SegmentMap[nHash];
+
+	m_SpinLock.Acquire ();
+
+	// Onyx: Karn's algorithm -- no RTT sample from a segment sent more than once
+	if (   Info.bUsed
+	    && Info.nSequenceNumber == nSequenceNumber
+	    && Info.nRetransmissions == 0)
+	{
+		Info.nRetransmissions = 1;
 	}
 
 	m_SpinLock.Release ();

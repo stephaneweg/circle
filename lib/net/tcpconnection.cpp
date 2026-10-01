@@ -58,7 +58,11 @@
 #define HZ_TIMEWAIT			(60 * HZ)
 #define HZ_FIN_TIMEOUT			(60 * HZ)	// timeout in FIN-WAIT-2 state
 
-#define MAX_RETRANSMISSIONS		5
+// Onyx: the minimum RTO is 200 ms now (retranstimeoutcalc.cpp; was 1 s): two more tries keep a
+// connection through a Wi-Fi outage of about as long as before (8 timeouts from 200 ms: 51 s at
+// least) before it is given up. A SYN keeps 5 (1 s initial RTO: 63 s; was 189 s from 3 s).
+#define MAX_RETRANSMISSIONS		7
+#define MAX_SYN_RETRANSMISSIONS		5
 
 struct TTCPHeader
 {
@@ -202,7 +206,7 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	{
 		m_RTOCalculator.SegmentSent (m_nISS);
 		NEW_STATE (TCPStateSynSent);
-		m_nRetransmissionCount = MAX_RETRANSMISSIONS;
+		m_nRetransmissionCount = MAX_SYN_RETRANSMISSIONS;
 		StartTimer (TCPTimerRetransmission, m_RTOCalculator.GetRTO ());
 	}
 }
@@ -1015,7 +1019,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 				m_bSendSYN = FALSE;
 				SendSegment (TCP_FLAG_SYN | TCP_FLAG_ACK, m_nISS, m_nRCV_NXT);
 				m_RTOCalculator.SegmentSent (m_nISS);
-				m_nRetransmissionCount = MAX_RETRANSMISSIONS;
+				m_nRetransmissionCount = MAX_SYN_RETRANSMISSIONS;
 				StartTimer (TCPTimerRetransmission, m_RTOCalculator.GetRTO ());
 
 				if (   (nFlags & TCP_FLAG_FIN)		// other controls?
@@ -1699,6 +1703,10 @@ void CTCPConnection::ResendSegment (void)
 	assert (pNetBuffer2 != 0);
 
 	SendSegment (nFlags, m_nSND_UNA, m_nRCV_NXT, pNetBuffer2);
+
+	// Onyx: Karn's algorithm -- a segment sent again (a fast retransmit, a partial ACK in
+	// fast recovery) gives no RTT sample: its ACK may be for either copy.
+	m_RTOCalculator.SegmentResent (m_nSND_UNA);
 
 	StartTimer (TCPTimerRetransmission, m_RTOCalculator.GetRTO ());
 
