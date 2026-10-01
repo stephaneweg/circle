@@ -2639,6 +2639,10 @@ int CEMMCDevice::DoWrite (u8 *buf, size_t buf_size, u32 block_no)
 // Onyx: called while the card keeps us waiting (after a short spin), if the kernel
 // defines it (weak reference): it yields the CPU when that is safe (task level, IRQs on).
 void OnyxDriverWait (void) __attribute__ ((weak));
+// Onyx: called at each turn of the shorter waits, if the kernel defines it: it yields when
+// the task has kept the CPU too long (many short waits in a row: a long multi-block write,
+// each block's wait well under 2 ms, held core 0 for 200 ms), under the same conditions.
+void OnyxDriverPoll (void) __attribute__ ((weak));
 
 int CEMMCDevice::TimeoutWait (unsigned long reg, unsigned mask, int value, unsigned usec)
 {
@@ -2664,6 +2668,10 @@ int CEMMCDevice::TimeoutWait (unsigned long reg, unsigned mask, int value, unsig
 		    && m_pTimer->GetClockTicks () - nStartTicks >= 2000 * (CLOCKHZ / 1000000))
 		{
 			OnyxDriverWait ();
+		}
+		else if (OnyxDriverPoll != 0)
+		{
+			OnyxDriverPoll ();
 		}
 #endif
 	}
