@@ -286,6 +286,15 @@ int CSocket::Send (const void *pBuffer, unsigned nLength, int nFlags)
 		{
 			delete pNetBuffer;
 
+			// Onyx: the chunks before this one are queued (they will be sent): their
+			// bytes are counted, as a POSIX send() does -- the caller resending "the
+			// rest" from a wrong count put bytes twice in the stream. The error comes
+			// back at the next call.
+			if (nRemaining < nLength)
+			{
+				return nLength - nRemaining;
+			}
+
 			return nResult;
 		}
 
@@ -404,6 +413,11 @@ int CSocket::SendTo (const void *pBuffer, unsigned nLength, int nFlags,
 		if (nResult < 0)
 		{
 			delete pNetBuffer;
+
+			if (nRemaining < nLength)	// Onyx: the bytes queued (see Send)
+			{
+				return nLength - nRemaining;
+			}
 
 			return nResult;
 		}
