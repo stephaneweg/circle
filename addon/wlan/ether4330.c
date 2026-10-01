@@ -2353,40 +2353,6 @@ wpaparsekey(WKey *key, uvlong *ivp, char *a)
 	return 0;
 }
 
-/*
- * Onyx: the firmware's "wsec" from the ciphers the WPA / RSN IE names -- its group cipher and
- * its pairwise ones (TKIP 2, CCMP/AES 4), as Linux's brcmfmac sets it. Always "aes" for WPA2
- * lost a network in WPA/WPA2 mixed mode (pairwise CCMP, group TKIP -- common on 2.4 GHz
- * routers): associated, but no broadcast decoded (no DHCP offer: the link stayed down).
- * dflt: when the IE names none (a short IE).
- */
-static int
-iewsec(uchar *ie, int n, int dflt)
-{
-	int o, k, cnt, w = 0;
-
-	if(ie[0] == 0x30)
-		o = 4;			/* id, len, version (2): the group suite */
-	else if(ie[0] == 0xdd && n >= 8)
-		o = 8;			/* id, len, OUI + type (4), version (2) */
-	else
-		return dflt;
-	if(o + 4 > n)
-		return dflt;
-	if(ie[o + 3] == 2) w |= 2;	/* the group cipher: TKIP */
-	if(ie[o + 3] == 4) w |= 4;	/*                   CCMP */
-	o += 4;
-	if(o + 2 > n)
-		return w ? w : dflt;
-	cnt = ie[o] | ie[o + 1] << 8;
-	o += 2;
-	for(k = 0; k < cnt && o + 4 <= n; k++, o += 4){
-		if(ie[o + 3] == 2) w |= 2;	/* a pairwise cipher: TKIP */
-		if(ie[o + 3] == 4) w |= 4;	/*                    CCMP */
-	}
-	return w ? w : dflt;
-}
-
 static void
 setauth(Ctlr *ctlr, Cmdbuf *cb, char *a)
 {
@@ -2406,12 +2372,12 @@ setauth(Ctlr *ctlr, Cmdbuf *cb, char *a)
 	if(ctlr->cryptotype == Wpa){
 		wlsetint(ctlr, "wpa_auth", 4|2);	/* auth_psk | auth_unspecified */
 		wlsetint(ctlr, "auth", 0);
-		wlsetint(ctlr, "wsec", iewsec(wpaie, i, 2));	/* tkip (+ what the IE names) */
+		wlsetint(ctlr, "wsec", 2);		/* tkip */
 		wlsetint(ctlr, "wpa_auth", 4);		/* auth_psk */
 	}else{
 		wlsetint(ctlr, "wpa_auth", 0x80|0x40);	/* auth_psk | auth_unspecified */
 		wlsetint(ctlr, "auth", 0);
-		wlsetint(ctlr, "wsec", iewsec(wpaie, i, 4));	/* aes (+ what the IE names) */
+		wlsetint(ctlr, "wsec", 4);		/* aes */
 		wlsetint(ctlr, "wpa_auth", 0x80);	/* auth_psk */
 	}
 }
