@@ -25,16 +25,15 @@
 
 //#define RTO_DEBUG
 
-// Onyx: the initial RTO is RFC 6298's 1 s (was 3 s, RFC 1122's), and the minimum is 200 ms
-// (was RFC 6298's conservative 1 s) -- Linux's TCP_RTO_MIN, for a LAN / Wi-Fi peer a few ms
-// away: one lost segment of a remote desktop stream stalled it a whole second. As in Linux,
-// the floor is on the variance term (RFC 6298's G, the "clock granularity", is 200 ms here):
-// RTO = SRTT + max (200 ms, 4 * RTTVAR), so a peer delaying its ACKs (Windows: up to 200 ms)
-// does not see spurious timeouts. The kernel timer ticks at HZ = 100: 200 ms = 20 ticks.
-// After a SYN retransmitted, RFC 6298 (5.7) wants the data phase to start at 3 s: the RTO is
-// then the backed-off one (2 s or more) until the first sample, which is close enough.
+// Onyx: the initial RTO is RFC 6298's 1 s (was 3 s, RFC 1122's); the minimum stays RFC 6298's
+// 1 s. It was lowered to 200 ms (Linux's TCP_RTO_MIN) on 2026-10-01 and the remote desktop's
+// throughput over Wi-Fi to a Windows PC collapsed (64 KB sends taking 0.5-2 s, ~50x slower):
+// Windows delays its ACKs up to 200 ms, a Wi-Fi link adds bursts of delay, and every spurious
+// timeout cut the congestion window to one segment -- Linux survives a 200 ms floor with its
+// F-RTO / spurious-timeout undo, which Circle lacks. The variance term keeps a 200 ms floor
+// (RFC 6298's G). The kernel timer ticks at HZ = 100.
 #define INITIAL_RTO		(1 * HZ)
-#define MIN_RTO			MSEC2HZ (200)
+#define MIN_RTO			(1 * HZ)
 #define MAX_RTO			(120 * HZ)
 
 #define CLEAR_SRTT_AFTER	3		// retransmissions
@@ -42,7 +41,7 @@
 #define ALPHA			8
 #define BETA			4
 #define K			4
-#define G			MIN_RTO		// Onyx: the variance term's floor (was 1 tick)
+#define G			MSEC2HZ (200)	// Onyx: the variance term's floor (was 1 tick)
 
 #ifdef RTO_DEBUG
 static const char FromRTO[] = "tcprto";

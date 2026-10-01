@@ -58,10 +58,9 @@
 #define HZ_TIMEWAIT			(60 * HZ)
 #define HZ_FIN_TIMEOUT			(60 * HZ)	// timeout in FIN-WAIT-2 state
 
-// Onyx: the minimum RTO is 200 ms now (retranstimeoutcalc.cpp; was 1 s): two more tries keep a
-// connection through a Wi-Fi outage of about as long as before (8 timeouts from 200 ms: 51 s at
-// least) before it is given up. A SYN keeps 5 (1 s initial RTO: 63 s; was 189 s from 3 s).
-#define MAX_RETRANSMISSIONS		7
+// Onyx: the minimum RTO is 1 s (retranstimeoutcalc.cpp: 200 ms was tried and undone), so the
+// upstream 5 tries (63 s) stay. A SYN: 5 (1 s initial RTO: 63 s; was 189 s from 3 s).
+#define MAX_RETRANSMISSIONS		5
 #define MAX_SYN_RETRANSMISSIONS		5
 
 struct TTCPHeader
