@@ -84,6 +84,8 @@ void *CPageAllocator::Allocate (void)
 
 		if (m_pNext > m_pLimit)
 		{
+			m_pNext -= PAGE_SIZE;	// Onyx: a failed attempt leaves the count as it was
+						// (GetFreeSpace () = m_pLimit - m_pNext would wrap)
 			m_SpinLock.Release ();
 
 			return 0;		// TODO: system should panic here
