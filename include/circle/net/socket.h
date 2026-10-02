@@ -66,6 +66,12 @@ public:
 	/// \return Newly created socket to be used to communicate with the remote host (0 on error)
 	CSocket *Accept (CIPAddress *pForeignIP, u16 *pForeignPort);
 
+	/// \brief Onyx: is a connection waiting to be accepted? (TCP, after Listen())
+	/// \return TRUE if Accept() will not block (a backlog connection is connected)
+	/// \note Also replaces the backlog connections that died before they were accepted\n
+	/// (a handshake that timed out: a port scan), so the backlog keeps its size.
+	boolean AcceptReady (void);
+
 	/// \brief Send a message to a remote host
 	/// \param pBuffer Pointer to the message
 	/// \param nLength Length of the message

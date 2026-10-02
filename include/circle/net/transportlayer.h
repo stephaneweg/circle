@@ -71,6 +71,7 @@ public:
 	int SetOptionDropMembership (const CIPAddress &rGroupAddress, int hConnection);
 
 	boolean IsConnected (int hConnection) const;
+	boolean IsTerminated (int hConnection) const;		// Onyx: TRUE if gone (or no such)
 	const u8 *GetForeignIP (int hConnection) const;		// returns 0 if not connected
 	u16 GetOwnPort (int hConnection) const;			// returns 0 if not assigned
 	u16 GetMSS (int hConnection) const;

@@ -95,6 +95,13 @@ public:
 	};
 	virtual TStatus GetStatus (void) const = 0;
 
+	// Onyx: the socket let it go (CTransportLayer::Disconnect, or a failed Connect). A
+	// terminated connection is deleted only then: its handle stays the socket's until the
+	// socket ends (a reset connection was deleted at once and its handle given to the next
+	// connection, which the old socket then read, wrote and closed).
+	void SetReleased (void)			{ m_bReleased = TRUE; }
+	boolean IsReleased (void) const		{ return m_bReleased; }
+
 protected:
 	CNetConfig    *m_pNetConfig;
 	CNetworkLayer *m_pNetworkLayer;
@@ -106,6 +113,9 @@ protected:
 	u16 m_nMSS;
 
 	CChecksumCalculator m_Checksum;
+
+private:
+	boolean m_bReleased;
 };
 
 #endif

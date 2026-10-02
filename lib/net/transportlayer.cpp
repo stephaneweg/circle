@@ -120,7 +120,7 @@ void CTransportLayer::Process (void)
 			{			
 				((CNetConnection *) m_pConnection[i])->Process ();
 			}
-			else
+			else if (((CNetConnection *) m_pConnection[i])->IsReleased ())	// Onyx
 			{
 				delete (CNetConnection *) m_pConnection[i];
 				m_pConnection[i] = 0;
@@ -265,6 +265,7 @@ int CTransportLayer::Connect (const CIPAddress &rIPAddress, u16 nPort, u16 nOwnP
 	int nResult = ((CNetConnection *) m_pConnection[i])->Connect ();
 	if (nResult < 0)
 	{
+		((CNetConnection *) m_pConnection[i])->SetReleased ();	// Onyx: nobody holds it
 		return nResult;
 	}
 	
@@ -336,6 +337,7 @@ int CTransportLayer::Disconnect (int hConnection)
 		return -NET_ERROR_INVALID_VALUE;
 	}
 
+	((CNetConnection *) m_pConnection[hConnection])->SetReleased ();	// Onyx: see netconnection.h
 	return ((CNetConnection *) m_pConnection[hConnection])->Close ();
 }
 
@@ -466,6 +468,18 @@ boolean CTransportLayer::IsConnected (int hConnection) const
 	}
 
 	return ((CNetConnection *) m_pConnection[hConnection])->IsConnected ();
+}
+
+boolean CTransportLayer::IsTerminated (int hConnection) const
+{
+	assert (hConnection >= 0);
+	if (   hConnection >= (int) m_pConnection.GetCount ()
+	    || m_pConnection[hConnection] == 0)
+	{
+		return TRUE;
+	}
+
+	return ((CNetConnection *) m_pConnection[hConnection])->IsTerminated ();
 }
 
 const u8 *CTransportLayer::GetForeignIP (int hConnection) const

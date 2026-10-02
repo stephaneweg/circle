@@ -235,12 +235,45 @@ CSocket *CSocket::Accept (CIPAddress *pForeignIP, u16 *pForeignPort)
 		pNewSocket = new CSocket (*this, hConnection);
 		assert (pNewSocket != 0);
 	}
+	else
+	{
+		// Onyx: the failed one (a peer gone before it was accepted) let go, not left
+		// listening on its own with no socket to accept it
+		m_pTransportLayer->Disconnect (hConnection);
+	}
 
 	// replace the returned connection with a new listening one
 	m_hListenConnection[nIndex] = m_pTransportLayer->Listen (m_nOwnPort, m_nProtocol);
 	assert (m_hListenConnection[nIndex] >= 0);
 
 	return pNewSocket;
+}
+
+boolean CSocket::AcceptReady (void)
+{
+	if (   m_nBackLog == 0
+	    || m_nOwnPort == 0)
+	{
+		return FALSE;
+	}
+
+	assert (m_pTransportLayer != 0);
+	boolean bReady = FALSE;
+	for (unsigned i = 0; i < m_nBackLog; i++)
+	{
+		if (m_pTransportLayer->IsTerminated (m_hListenConnection[i]))
+		{
+			m_pTransportLayer->Disconnect (m_hListenConnection[i]);
+			m_hListenConnection[i] = m_pTransportLayer->Listen (m_nOwnPort, m_nProtocol);
+			assert (m_hListenConnection[i] >= 0);
+		}
+		else if (m_pTransportLayer->IsConnected (m_hListenConnection[i]))
+		{
+			bReady = TRUE;
+		}
+	}
+
+	return bReady;
 }
 
 int CSocket::Send (const void *pBuffer, unsigned nLength, int nFlags)
