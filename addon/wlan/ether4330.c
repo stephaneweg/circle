@@ -1311,6 +1311,10 @@ wlreadpkt(Ctlr *ctl)
 	return b;
 }
 
+/* Onyx (onyx_wlstat): the transmit side's counters, read and cleared by rproc's line */
+static unsigned st_tx, st_txbusy, st_txwin, st_txfc, st_txlat, st_lastrx, st_txus, st_consec, st_afterempty;
+extern unsigned p9usec(void);
+
 static void
 txstart(Ether *edev)
 {
@@ -1320,8 +1324,10 @@ txstart(Ether *edev)
 	int len, off;
 
 	ctl = edev->ctlr;
-	if(!canqlock(&ctl->tlock))
+	if(!canqlock(&ctl->tlock)){
+		st_txbusy++;
 		return;
+	}
 	if(waserror()){
 		qunlock(&ctl->tlock);
 		return;
@@ -1330,11 +1336,13 @@ txstart(Ether *edev)
 		lock(&ctl->txwinlock);
 		if(ctl->txseq == ctl->txwindow){
 			//print("f");
+			st_txwin++;
 			unlock(&ctl->txwinlock);
 			break;
 		}
 		if(ctl->fcmask & 1<<2){
 			//print("x");
+			st_txfc++;
 			unlock(&ctl->txwinlock);
 			break;
 		}
@@ -1365,7 +1373,13 @@ txstart(Ether *edev)
 			qunlock(&ctl->pktlock);
 			nexterror();
 		}
-		packetrw(1, b->rp, len);
+		{
+			unsigned t = p9usec();
+			packetrw(1, b->rp, len);
+			st_txus += p9usec() - t;
+			st_tx++;
+			st_txlat += t - st_lastrx;
+		}
 		ctl->txseq++;
 		poperror();
 		qunlock(&ctl->pktlock);
@@ -1374,6 +1388,49 @@ txstart(Ether *edev)
 	poperror();
 	qunlock(&ctl->tlock);
 }
+
+/*
+ * Onyx: the chip asked, not waited for. intwait() sleeps until the SDIO card interrupt, and that
+ * interrupt comes late: measured on the Pi 4 under a steady stream, 2.5 to 5 ms a wait, 80% of
+ * the reader's time -- the frames were there. When the network has a core of its own (Onyx's
+ * netcore=1: onyx_wlpoll set), the reader asks the chip in turn with the stack's other tasks (a
+ * round of that core's scheduler: ~13 us) -- one pass of what intwait does once the interrupt
+ * has come, without it. Without it (0, the default) the driver waits for the interrupt as before.
+ */
+int onyx_wlpoll = 0;			/* set by the kernel with netcore=1 */
+
+/* -> 1: the chip has frames to read (FrameInt was pending: acknowledged) */
+static int
+intpoll(Ctlr *ctlr)
+{
+	ulong ints, mbox;
+	int i, frames;
+
+	frames = 0;
+	if(waserror())
+		return 0;
+	sdiocardintr(0);			/* (the controller's card interrupt flag cleared) */
+	sbwindow(ctlr->sdregs);
+	i = sdiord(Fn0, Intpend);
+	if(i != 0){
+		ints = cfgreadl(Fn1, ctlr->sdregs + Intstatus);
+		cfgwritel(Fn1, ctlr->sdregs + Intstatus, ints);
+		if(ints & MailboxInt){
+			mbox = cfgreadl(Fn1, ctlr->sdregs + Hostmboxdata);
+			cfgwritel(Fn1, ctlr->sdregs + Sbmbox, 2);	/* ack */
+			if(mbox & 0x8)
+				print("ether4330: firmware ready\n");
+		}
+		if(ints & FrameInt)
+			frames = 1;
+	}
+	poperror();
+	return frames;
+}
+
+extern unsigned p9usec(void);		/* p9util.cpp: the microsecond clock */
+extern void p9yield(void);		/* p9util.cpp: a turn of the scheduler */
+int onyx_wlstat = 0;			/* the receive loop's times and the link's state in the log (the kernel: cmdline netstat=1) */
 
 static void
 rproc(void *a)
@@ -1385,20 +1442,63 @@ rproc(void *a)
 	Cmd *q;
 	int flowstart;
 	int bdc;
+	unsigned t0, t1, start, nframes, nbytes, nwaits, usread, uswait, usempty, usup;
+	int lastwasframe = 0, pending = 0;
 
 	edev = a;
 	ctl = edev->ctlr;
 	flowstart = 0;
+	start = p9usec();
+	nframes = nbytes = nwaits = usread = uswait = usempty = usup = 0;
 	for(;;){
 		if(flowstart){
 			//print("F");
 			flowstart = 0;
 			txstart(edev);
 		}
+		/* (polling: the data function is read only once the chip said it has frames, and then
+		 * until it has none -- a read with nothing pending is not something the firmware expects) */
+		if(onyx_wlpoll && !pending){
+			t0 = p9usec();
+			pending = intpoll(ctl);
+			uswait += p9usec() - t0;
+			nwaits++;
+			if(!pending){
+				lastwasframe = 0;
+				p9yield();
+				continue;
+			}
+		}
+		t0 = p9usec();
 		b = wlreadpkt(ctl);
+		t1 = p9usec();
 		if(b == nil){
-			intwait(ctl, 1);
+			usempty += t1 - t0;
+			lastwasframe = 0;
+			pending = 0;
+			if(!onyx_wlpoll){
+				intwait(ctl, 1);
+				uswait += p9usec() - t1;
+				nwaits++;
+			}
 			continue;
+		}
+		usread += t1 - t0;
+		nframes++;
+		if(lastwasframe) st_consec++; else st_afterempty++;
+		lastwasframe = 1;
+		st_lastrx = t1;
+		nbytes += BLEN(b);
+		if(onyx_wlstat && t1 - start >= 5000000){
+			if(nframes > 200)
+				print("ether4330: rx %u frames/s, %u KB/s; a frame's read %u us; %u waits/s, a wait %u us (+ the empty read %u us); handing up %u us a frame\n",
+					nframes / 5, nbytes / 5120, usread / nframes, nwaits / 5, nwaits ? uswait / nwaits : 0, nwaits ? usempty / nwaits : 0, usup / nframes);
+			if(nframes > 200)
+				print("ether4330: rx frames after another %u, after empty polls %u; tx %u frames/s, a frame's write %u us, sent %u us after the last frame read; held back: lock %u, window %u, flow control %u\n",
+					st_consec / 5, st_afterempty / 5, st_tx / 5, st_tx ? st_txus / st_tx : 0, st_tx ? st_txlat / st_tx : 0, st_txbusy, st_txwin, st_txfc);
+			st_tx = st_txbusy = st_txwin = st_txfc = st_txlat = st_txus = st_consec = st_afterempty = 0;
+			start = t1;
+			nframes = nbytes = nwaits = usread = uswait = usempty = usup = 0;
 		}
 		p = (Sdpcm*)b->rp;
 		if(p->window != ctl->txwindow || p->fcmask != ctl->fcmask){
@@ -1445,7 +1545,9 @@ rproc(void *a)
 				bdc = 4 + (b->rp[p->doffset + 3] << 2);
 				if(BLEN(b) >= p->doffset + bdc + ETHERHDRSIZE){
 					b->rp += p->doffset + bdc;	/* skip BDC header */
+					t0 = p9usec();
 					etheriq(edev, b, 1);
+					usup += p9usec() - t0;
 					continue;
 				}
 			}
@@ -1945,35 +2047,67 @@ wlcreateAP(Ctlr *ctl, char *ssid, int channel, int hidden)	/* by @sebastienNEC *
 	ctl->status = Connected;	/* TODO: check return code as in waitjoin() */
 }
 
+/*
+ * Onyx: what a scan looks for and how its results are ranked, set by the kernel (which reads the
+ * networks' names from wpa_supplicant's configuration; hostap itself is not changed).
+ *  onyx_scan_ssid / onyx_scan_nssid: the names probed for beside the wildcard (up to four);
+ *  onyx_scan_5g_bias: dB added to the level reported for a 5 GHz BSS heard at -78 dBm or better
+ *	(0: the levels as heard), so that wpa_supplicant, which ranks by level, takes a network
+ *	that is on both bands on 5 GHz.
+ */
+char onyx_scan_ssid[4][33];
+int onyx_scan_nssid;
+int onyx_scan_5g_bias;
+
 static void
 wlscanstart(Ctlr *ctl)
 {
 	/* version[4] action[2] sync_id[2] ssidlen[4] ssid[32] bssid[6] bss_type[1]
 		scan_type[1] nprobes[4] active_time[4] passive_time[4] home_time[4]
-		nchans[2] nssids[2] chans[nchans][2] ssids[nssids][32] */
-	/* hack - this is only correct on a little-endian cpu */
-	static uchar params[4+2+2+4+32+6+1+1+4*4+2+2+14*2+32+4] = {
-		1,0,0,0,
-		1,0,
-		0x34,0x12,
-		0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0xff,0xff,0xff,0xff,0xff,0xff,
-		2,
-		0,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		14,0,
-		1,0,
-		0x01,0x2b,0x02,0x2b,0x03,0x2b,0x04,0x2b,0x05,0x2e,0x06,0x2e,0x07,0x2e,
-		0x08,0x2b,0x09,0x2b,0x0a,0x2b,0x0b,0x2b,0x0c,0x2b,0x0d,0x2b,0x0e,0x2b,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	};
+		nchans[2] nssids[2] chans[nchans][2] ssids[nssids][4+32] */
+	/*
+	 * Onyx: every channel of both bands (nchans 0: the firmware's own list), and the configured
+	 * networks probed for by name beside the wildcard. The list was the fourteen 2.4 GHz
+	 * channels with the wildcard alone: a 5 GHz BSS was never a candidate (a Pi 4 joined its
+	 * access point on a crowded 2.4 GHz channel while the same network was there on 5 GHz), and
+	 * an access point that leaves its name out of its beacons was not seen as that network.
+	 */
+	uchar params[4+2+2+4+32+6+1+1+4*4+2+2+5*(4+32)];
+	uchar *p;
+	int i, n, nssid;
+
+	memset(params, 0, sizeof params);
+	p = params;
+	p = put4(p, 1);			/* version */
+	p = put2(p, 1);			/* action: start */
+	p = put2(p, 0x1234);		/* sync id */
+	p = put4(p, 0);			/* ssid: any */
+	p += 32;
+	memset(p, 0xff, Eaddrlen);	/* bssid: any */
+	p += Eaddrlen;
+	*p++ = 2;			/* bss type: any */
+	*p++ = 0;			/* scan type: active */
+	memset(p, 0xff, 4*4);		/* nprobes, active, passive, home time: the firmware's */
+	p += 4*4;
+	nssid = onyx_scan_nssid;
+	if(nssid < 0)
+		nssid = 0;
+	if(nssid > 4)
+		nssid = 4;
+	p = put2(p, 0);			/* nchans: all */
+	p = put2(p, 1 + nssid);		/* nssids */
+	p = put4(p, 0);			/* the wildcard */
+	p += 32;
+	for(i = 0; i < nssid; i++){
+		n = strlen(onyx_scan_ssid[i]);
+		n = MIN(n, 32);
+		p = put4(p, n);
+		memmove(p, onyx_scan_ssid[i], n);
+		p += 32;
+	}
 
 	wlcmdint(ctl, 49, 0);	/* PASSIVE_SCAN */
-	wlsetvar(ctl, "escan", params, sizeof params);
+	wlsetvar(ctl, "escan", params, p - params);
 }
 
 #ifndef __circle__
@@ -2086,6 +2220,27 @@ wlscanresult(Ether *edev, uchar *p, int len)
 static void
 wlscanresult(Ether *edev, uchar *p, int len)
 {
+	/* buflen[4] version[4] sync_id[2] bss_count[2], then each BSS: version[4] length[4] ...
+		chanspec[2] at 72 (its low byte: the channel), RSSI[2] at 78 (signed, dBm) */
+	uchar *b;
+	int n, off, blen, rssi, biased;
+
+	if(onyx_scan_5g_bias != 0 && len >= 12){
+		n = p[10] | p[11]<<8;
+		for(off = 12; n > 0 && off + 80 <= len; n--, off += blen){
+			b = p + off;
+			blen = get4(b+4);
+			if(blen < 80 || blen > len - off)
+				break;
+			rssi = (short)(b[78] | b[79]<<8);
+			if(b[72] > 14 && rssi >= -78){
+				biased = rssi + onyx_scan_5g_bias;
+				if(biased > -10)		/* (it stays a level: negative) */
+					biased = rssi > -10 ? rssi : -10;
+				put2(b+78, biased);
+			}
+		}
+	}
 	etherscanresult(edev, p, len);
 }
 
@@ -2125,6 +2280,25 @@ lproc(void *a)
 	secs = 0;
 	for(;;){
 		tsleep(&up->sleep, return0, 0, 1000);
+		/* Onyx (onyx_wlstat): what the firmware says of the link, every ten seconds */
+		{
+			static int linksecs;
+			if(onyx_wlstat && ctlr->status == Connected && ++linksecs >= 10){
+				int rate = 0, rssi = 0, nmode = -1, ampdu = -1, pm = -1, mpc = -1, glom = -1;
+				uint chanspec = 0;
+				linksecs = 0;
+				if(!waserror()){ wlcmd(ctlr, 0, 12, nil, 0, &rate, 4); poperror(); }
+				if(!waserror()){ wlcmd(ctlr, 0, 127, nil, 0, &rssi, 4); poperror(); }
+				if(!waserror()){ wlcmd(ctlr, 0, 85, nil, 0, &pm, 4); poperror(); }
+				if(!waserror()){ wlgetvar(ctlr, "nmode", &nmode, 4); poperror(); }
+				if(!waserror()){ wlgetvar(ctlr, "ampdu", &ampdu, 4); poperror(); }
+				if(!waserror()){ wlgetvar(ctlr, "chanspec", &chanspec, 4); poperror(); }
+				if(!waserror()){ wlgetvar(ctlr, "mpc", &mpc, 4); poperror(); }
+				if(!waserror()){ wlgetvar(ctlr, "bus:rxglom", &glom, 4); poperror(); }
+				print("ether4330: link: rate %d.%d Mbit/s, rssi %d dBm, nmode %d, ampdu %d, chanspec %x, PM %d, mpc %d, rxglom %d\n",
+					rate / 2, (rate & 1) * 5, rssi, nmode, ampdu, chanspec, pm, mpc, glom);
+			}
+		}
 		if(ctlr->scansecs){
 			if(secs == 0){
 				if(waserror())

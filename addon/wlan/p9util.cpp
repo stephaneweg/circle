@@ -120,3 +120,16 @@ void hexdump (const void *p, size_t len, const char *from)
 	debug_hexdump (p, len, from);
 #endif
 }
+
+// The microsecond clock for the driver's C files (Onyx: the receive loop's times).
+#include <circle/timer.h>
+extern "C" unsigned p9usec (void)
+{
+	return CTimer::GetClockTicks ();
+}
+
+#include <circle/sched/scheduler.h>
+extern "C" void p9yield (void)
+{
+	CScheduler::Get ()->Yield ();
+}
