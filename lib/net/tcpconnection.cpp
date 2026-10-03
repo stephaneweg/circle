@@ -952,6 +952,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 		{
 			if (bAcceptable)
 			{
+				StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 				NEW_STATE (TCPStateClosed);
 				m_bSendSYN = FALSE;
 				m_nErrno = -NET_ERROR_CONNECTION_REFUSED;
@@ -1027,6 +1028,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 					if (nFlags & TCP_FLAG_FIN)
 					{
 						SendSegment (TCP_FLAG_RESET, m_nSND_NXT);
+						StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 						NEW_STATE (TCPStateClosed);
 						m_nErrno = -NET_ERROR_PROTOCOL_ERROR;
 						m_Event.Set ();
@@ -1107,6 +1109,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 				else
 				{
 					m_nErrno = -NET_ERROR_CONNECTION_RESET;
+					StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 					NEW_STATE (TCPStateClosed);
 					m_Event.Set ();
 
@@ -1124,8 +1127,10 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 				m_nErrno = -NET_ERROR_CONNECTION_RESET;
 				m_TxQueue.Flush ();
 				m_RxQueue.Flush ();
+				StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 				NEW_STATE (TCPStateClosed);
 				m_Event.Set ();
+				m_TxEvent.Set ();			// Onyx: a sender waiting for room sees the reset
 
 				delete pPacket;
 
@@ -1134,6 +1139,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 			case TCPStateClosing:
 			case TCPStateLastAck:
 			case TCPStateTimeWait:
+				StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 				NEW_STATE (TCPStateClosed);
 				m_Event.Set ();
 
@@ -1170,8 +1176,10 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 			m_nErrno = -NET_ERROR_PROTOCOL_ERROR;
 			m_TxQueue.Flush ();
 			m_RxQueue.Flush ();
+			StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 			NEW_STATE (TCPStateClosed);
 			m_Event.Set ();
+			m_TxEvent.Set ();			// Onyx: as for a RST
 
 			delete pPacket;
 
@@ -1401,6 +1409,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 			if (nSEG_ACK == m_nSND_NXT)	// if our FIN is now acknowledged
 			{
 				m_bFINQueued = FALSE;
+				StopTimer (TCPTimerRetransmission);	// Onyx: see TimerHandler
 				NEW_STATE (TCPStateClosed);
 				m_Event.Set ();
 
@@ -1905,6 +1914,21 @@ void CTCPConnection::TimerHandler (unsigned nTimer)
 	switch (nTimer)
 	{
 	case TCPTimerRetransmission:
+		// Onyx: a connection that has nothing to send again ignores the timer. A peer's RST
+		// (a telnet client gone while output flowed), the ACK of our FIN in LAST-ACK, a
+		// refused connect closed the connection with this timer running; a terminated
+		// connection is kept until its socket releases it (not deleted at the next Process
+		// as upstream did), so the timer fired on a CLOSED connection a second later:
+		// "Unexpected state 0", a panic any client could cause. Those paths stop the timer
+		// now; this is for the handler (an interrupt, maybe another core) racing them.
+		if (   m_State == TCPStateClosed
+		    || m_State == TCPStateListen
+		    || m_State == TCPStateFinWait2
+		    || m_State == TCPStateTimeWait)
+		{
+			break;
+		}
+
 		m_RTOCalculator.RetransmissionTimerExpired (m_nSND_UNA);
 
 		if (m_nRetransmissionCount-- == 0)
@@ -1919,8 +1943,7 @@ void CTCPConnection::TimerHandler (unsigned nTimer)
 		case TCPStateListen:
 		case TCPStateFinWait2:
 		case TCPStateTimeWait:
-			UNEXPECTED_STATE ();
-			break;
+			break;			// (changed meanwhile: nothing to do)
 
 		case TCPStateSynSent:
 		case TCPStateSynReceived:
