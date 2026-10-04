@@ -211,6 +211,26 @@ WR(int reg, u32int val)
 	r[reg] = val;
 }
 
+/*
+ * Onyx: the interrupt enable register is changed from two cores -- the driver's tasks (the
+ * network core) set bits, the interrupt handler (core 0) clears those that came. One lock for
+ * every such change (lock() masks the interrupts: the handler never finds it held on its own core).
+ */
+static Lock irplock;
+
+static void
+irpenable(u32int bits)
+{
+	volatile u32int *r = (u32int*)EMMCREGS;
+
+	if(!(emmc.fastclock && (onyx_wlfast & 16)))
+		microdelay(emmc.fastclock? 2 : 20);
+	lock(&irplock);
+	coherence();
+	r[Irpten] = r[Irpten] | bits;
+	unlock(&irplock);
+}
+
 static uint
 clkdiv(uint d)
 {
@@ -349,11 +369,40 @@ sdiocardintr(int wait)
 	while(((i = r[Interrupt]) & Cardintr) == 0){
 		if(!wait)
 			return 0;
-		WR(Irpten, r[Irpten] | Cardintr);
+		irpenable(Cardintr);
 		sleep(&emmc.cardr, cardintready, 0);
 	}
 	WR(Interrupt, Cardintr);
 	return i;
+}
+
+/*
+ * Onyx: is the card's interrupt pending? (the controller's flag: a register read, no command).
+ * arm: when it is not, its interrupt is enabled -- the handler, on core 0, sends the event that
+ * ends the network core's sleep (sys/net.cpp of the kernel) and disables it again.
+ */
+int
+sdiocardintrpending(int arm)
+{
+	volatile u32int *r = (u32int*)EMMCREGS;
+
+	if(arm){
+		/* the flag also latches what the data lines did during the last commands: cleared
+		 * first -- a card that does ask sets it again at once (it is a level) */
+		/* (the flag is the line's level as long as its status is enabled: disabled, then
+		 * enabled again, it is sampled anew -- writing it alone does not clear it) */
+		coherence();
+		r[Irptmask] = r[Irptmask] & ~Cardintr;
+		r[Interrupt] = Cardintr;
+		microdelay(2);
+		r[Irptmask] = r[Irptmask] | Cardintr;
+		microdelay(5);
+	}
+	if(r[Interrupt] & Cardintr)
+		return 1;
+	if(arm)
+		irpenable(Cardintr);
+	return 0;
 }
 
 static int
@@ -445,7 +494,7 @@ emmccmd(u32int cmd, u32int arg, u32int *resp)
 		break;
 	}
 	if((c & Respmask) == Resp48busy){
-		WR(Irpten, r[Irpten]|Datadone|Err);
+		irpenable(Datadone|Err);
 		tsleep(&emmc.r, datadone, 0, 3000);
 		i = r[Interrupt];
 		if((i & Datadone) == 0)
@@ -600,7 +649,7 @@ emmcio(int write, uchar *buf, int len)
 	/* Onyx (onyx_wlfast & 4, ether4330.c): a transfer that has ended is not waited for (tsleep
 	 * yields before it looks) */
 	if(!(onyx_wlfast & 4) || !datadone(0)){
-		WR(Irpten, r[Irpten]|Datadone|Err);
+		irpenable(Datadone|Err);
 		tsleep(&emmc.r, datadone, 0, 3000);
 	}
 	i = r[Interrupt]&~Cardintr;
@@ -635,7 +684,27 @@ mmcinterrupt(Ureg*regs, void*param)
 		wakeup(&emmc.r);
 	if(i&Cardintr)
 		wakeup(&emmc.cardr);
+	lock(&irplock);
 	r[Irpten] &= ~i;
+	unlock(&irplock);
+	if(i&Cardintr)
+		__asm__ volatile ("sev");	/* Onyx: the network core's sleep ends (sdiocardintrpending) */
+}
+
+/* Onyx: the controller's registers, for the network core's statistics line (0 Interrupt, 1 Status,
+ * 2 Control0, 3 Irptmask, 4 Irpten) */
+unsigned
+sdiodebugreg(int which)
+{
+	volatile u32int *r = (u32int*)EMMCREGS;
+
+	switch(which){
+	case 0:	return r[Interrupt];
+	case 1:	return r[Status];
+	case 2:	return r[Control0];
+	case 3:	return r[Irptmask];
+	default: return r[Irpten];
+	}
 }
 
 SDio sdio = {
