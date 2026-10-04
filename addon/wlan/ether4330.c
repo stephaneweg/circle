@@ -441,6 +441,41 @@ sdiowr(int fn, int addr, int data)
 	error(Eio);
 }
 
+/*
+ * Onyx: the frames' path, faster (each bit a switch, set by the kernel):
+ *  1: a transfer's length over a block is rounded up to whole blocks -- one SDIO command, not the
+ *     blocks and then the rest (packetrw);
+ *  2: the next frame is read whole when the last frame's header told its length (wlreadpkt);
+ *  4: the locks of this path -- the SDIO lock around a data command, the packet lock -- are taken
+ *     and released without a turn of the scheduler first (qlock and qunlock each yield, free or
+ *     not: a frame cost eleven turns, every one a round of all the stack's tasks), and the end of
+ *     a transfer is looked at before it is waited for (emmc.c); the reader yields once a frame.
+ */
+int onyx_wlfast = 0;
+extern void p9yield(void);
+
+static void
+fqlock(QLock *l)
+{
+	if(!(onyx_wlfast & 4)){
+		qlock(l);
+		return;
+	}
+	while(l->locked)
+		p9yield();
+	l->locked = 1;
+}
+
+static void
+fqunlock(QLock *l)
+{
+	if(!(onyx_wlfast & 4)){
+		qunlock(l);
+		return;
+	}
+	l->locked = 0;
+}
+
 static void
 sdiorwext(int fn, int write, void *a, int len, int addr, int incr)
 {
@@ -461,10 +496,10 @@ sdiorwext(int fn, int write, void *a, int len, int addr, int incr)
 			bcount = len;
 			m = bcount;
 		}
-		qlock(&sdiolock);
+		fqlock(&sdiolock);
 		if(waserror()){
 			print("ether4330: sdiorwext fail: %s\n", up->errstr);
-			qunlock(&sdiolock);
+			fqunlock(&sdiolock);
 			nexterror();
 		}
 		if(blk)
@@ -474,7 +509,7 @@ sdiorwext(int fn, int write, void *a, int len, int addr, int incr)
 		sdiocmd_locked(IO_RW_EXTENDED,
 			write<<31 | (fn&7)<<28 | blk<<27 | incr<<26 | (addr&0x1FFFF)<<9 | (bcount&0x1FF));
 		sdio.io(write, a, m);
-		qunlock(&sdiolock);
+		fqunlock(&sdiolock);
 		poperror();
 		len -= m;
 		a = (char*)a + m;
@@ -689,18 +724,22 @@ sbmem(int write, uchar *buf, int len, ulong off)
 	}
 }
 
+/*
+ * Onyx: a transfer is one SDIO command. A length over a block (512) is rounded up to whole
+ * blocks -- sdiorwext() sent the blocks and then the rest in a second command (a 1500-byte frame:
+ * two blocks, then 476 bytes) -- as the "roundup" of Linux's brcmfmac: past a frame's end the chip
+ * pads a read and ignores what is written.
+ */
 static void
 packetrw(int write, uchar *buf, int len)
 {
-	uchar b[2048];
+	uchar b[2048+512];
 	int n, m;
 	int retry;
 
-	n = 2048;
 	while(len > 0){
-		m = n;
-		if(n > len)
-			n = ROUND(len, 4);
+		m = len > 2048 ? 2048 : len;
+		n = (onyx_wlfast & 1) && m > 512 ? ROUND(m, 512) : ROUND(m, 4);
 		retry = 0;
 		while(waserror()){
 			sdioabort(Fn2);
@@ -708,17 +747,19 @@ packetrw(int write, uchar *buf, int len)
 				nexterror();
 		}
 		if (m != n){
-			if (write)
-				memcpy(b, buf, len);
+			if (write){
+				memcpy(b, buf, m);
+				memset(b + m, 0, n - m);
+			}
 			sdiorwext(Fn2, write, b, n, Enumbase, 0);
 			if (!write)
-				memcpy(buf, b, len);
+				memcpy(buf, b, m);
 		}
 		else
 			sdiorwext(Fn2, write, buf, n, Enumbase, 0);
 		poperror();
-		buf += n;
-		len -= n;
+		buf += m;
+		len -= m;
 	}
 }
 
@@ -1278,13 +1319,24 @@ wlreadpkt(Ctlr *ctl)
 {
 	Block *b;
 	Sdpcm *p;
-	int len, lenck;
+	int len, lenck, n;
+	static int nextlen;	/* Onyx: the next frame's length, from the last frame's header (0: not known) */
 
 	b = allocb(2048);
 	p = (Sdpcm*)b->wp;
-	qlock(&ctl->pktlock);
+	fqlock(&ctl->pktlock);
 	for(;;){
-		packetrw(0, b->wp, sizeof(*p));
+		/*
+		 * Onyx: the header says how long the next frame is (nextlen, in 16-byte units)
+		 * when the chip has one queued: that frame is then read whole in one command,
+		 * not its header first and the rest after. Without the hint: the header, then
+		 * the rest, as before.
+		 */
+		n = nextlen;
+		nextlen = 0;
+		if(!(onyx_wlfast & 2) || n < sizeof(*p) || n > 2048)
+			n = sizeof(*p);
+		packetrw(0, b->wp, n);
 		len = p->len[0] | p->len[1]<<8;
 		if(len == 0){
 			freeb(b);
@@ -1302,12 +1354,13 @@ wlreadpkt(Ctlr *ctl)
 				;
 			continue;
 		}
-		if(len > sizeof(*p))
-			packetrw(0, b->wp + sizeof(*p), len - sizeof(*p));
+		if(len > n)
+			packetrw(0, b->wp + n, len - n);
+		nextlen = p->nextlen << 4;
 		b->wp += len;
 		break;
 	}
-	qunlock(&ctl->pktlock);
+	fqunlock(&ctl->pktlock);
 	return b;
 }
 
@@ -1548,6 +1601,8 @@ rproc(void *a)
 					t0 = p9usec();
 					etheriq(edev, b, 1);
 					usup += p9usec() - t0;
+					if(onyx_wlfast & 4)
+						p9yield();	/* Onyx: the stack's turn (the locks no longer yield) */
 					continue;
 				}
 			}
@@ -2284,7 +2339,7 @@ lproc(void *a)
 		{
 			static int linksecs;
 			if(onyx_wlstat && ctlr->status == Connected && ++linksecs >= 10){
-				int rate = 0, rssi = 0, nmode = -1, ampdu = -1, pm = -1, mpc = -1, glom = -1;
+				int rate = 0, rssi = 0, nmode = -1, ampdu = -1, pm = -1, mpc = -1, glom = -1, vht = -1, band = -1;
 				uint chanspec = 0;
 				linksecs = 0;
 				if(!waserror()){ wlcmd(ctlr, 0, 12, nil, 0, &rate, 4); poperror(); }
@@ -2295,8 +2350,10 @@ lproc(void *a)
 				if(!waserror()){ wlgetvar(ctlr, "chanspec", &chanspec, 4); poperror(); }
 				if(!waserror()){ wlgetvar(ctlr, "mpc", &mpc, 4); poperror(); }
 				if(!waserror()){ wlgetvar(ctlr, "bus:rxglom", &glom, 4); poperror(); }
-				print("ether4330: link: rate %d.%d Mbit/s, rssi %d dBm, nmode %d, ampdu %d, chanspec %x, PM %d, mpc %d, rxglom %d\n",
-					rate / 2, (rate & 1) * 5, rssi, nmode, ampdu, chanspec, pm, mpc, glom);
+				if(!waserror()){ wlgetvar(ctlr, "vhtmode", &vht, 4); poperror(); }
+				if(!waserror()){ band = sdiord(Fn0, Busifc) & 3; poperror(); }
+				print("ether4330: link: rate %d.%d Mbit/s, rssi %d dBm, nmode %d, vhtmode %d, ampdu %d, chanspec %x, PM %d, mpc %d, rxglom %d; SDIO bus width bits %d (2: four lines), fast path %d\n",
+					rate / 2, (rate & 1) * 5, rssi, nmode, vht, ampdu, chanspec, pm, mpc, glom, band, onyx_wlfast);
 			}
 		}
 		if(ctlr->scansecs){

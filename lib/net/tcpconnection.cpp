@@ -49,7 +49,17 @@
 #define TCP_CONFIG_MSS			(TCP_MSS_R - TCP_HEADER_LEN)
 #define TCP_CONFIG_WINDOW		(TCP_CONFIG_MSS * 44)	// Onyx: 64240 (was 10 MSS: 14600)
 
-#define TCP_CONFIG_TX_THRESHOLD		0x10000	// TX stops, if this number of bytes is queued
+// Onyx: with window scaling (RFC 7323: both SYNs carry the option) the receive window is 180
+// segments (262800 bytes), sent shifted right by 3. 64 KB a round trip was the ceiling of every
+// download: 2.5 MB/s at 25 ms, and 4.5 MB/s on the LAN (the queueing's 14 ms).
+#define TCP_CONFIG_WINDOW_SCALED	(TCP_CONFIG_MSS * 180)
+#define TCP_CONFIG_WINDOW_SHIFT		3
+#define TCP_CONFIG_SSTHRESH_SCALED	0x100000	// initial slow-start threshold with a scaled peer window
+
+extern "C" { int onyx_tcp_ws = 0; }		// the switch (0: as before -- no option, a constant 64 KB window)
+
+						// TX stops, if this number of bytes is queued
+#define TCP_CONFIG_TX_THRESHOLD		(onyx_tcp_ws ? 0x40000u : 0x10000u)
 #define TCP_CONFIG_RX_THRESHOLD		0x10000	// kicks RX, if this number of bytes is queued
 
 #define TCP_MAX_WINDOW			((u16) -1)	// without Window extension option
@@ -162,7 +172,7 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nErrno (0),
 	m_TxQueue (TRUE),
 	m_RxQueue (TRUE),
-	m_ReassemblyQueue (&m_RxQueue, TCP_CONFIG_WINDOW),
+	m_ReassemblyQueue (&m_RxQueue, TCP_CONFIG_WINDOW_SCALED),
 	m_bRetransmit (FALSE),
 	m_bSendSYN (FALSE),
 	m_bFINQueued (FALSE),
@@ -176,6 +186,11 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nRCV_NXT (0),
 	m_nRCV_WND (TCP_CONFIG_WINDOW),
 	m_nIRS (0),
+	m_bWindowScale (FALSE),
+	m_nSndScale (0),
+	m_nRcvScale (0),
+	m_nRcvLimit (TCP_CONFIG_WINDOW),
+	m_nRcvAdvEdge (0),
 	m_nSND_MSS (536),	// RFC 1122 section 4.2.2.6
 	m_nIW (4 * m_nSND_MSS),
 	m_nCWND (m_nIW),
@@ -219,7 +234,7 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nErrno (0),
 	m_TxQueue (TRUE),
 	m_RxQueue (TRUE),
-	m_ReassemblyQueue (&m_RxQueue, TCP_CONFIG_WINDOW),
+	m_ReassemblyQueue (&m_RxQueue, TCP_CONFIG_WINDOW_SCALED),
 	m_bRetransmit (FALSE),
 	m_bSendSYN (FALSE),
 	m_bFINQueued (FALSE),
@@ -233,6 +248,11 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nRCV_NXT (0),
 	m_nRCV_WND (TCP_CONFIG_WINDOW),
 	m_nIRS (0),
+	m_bWindowScale (FALSE),
+	m_nSndScale (0),
+	m_nRcvScale (0),
+	m_nRcvLimit (TCP_CONFIG_WINDOW),
+	m_nRcvAdvEdge (0),
 	m_nSND_MSS (536),	// RFC 1122 section 4.2.2.6
 	m_nIW (4 * m_nSND_MSS),
 	m_nCWND (m_nIW),
@@ -537,6 +557,22 @@ int CTCPConnection::Receive (CNetBuffer **ppNetBuffer, int nFlags)
 	size_t nLength = (*ppNetBuffer)->GetLength ();
 	assert (nLength <= FRAME_BUFFER_SIZE);
 
+	// Onyx: the window follows the receive queue (ReceiveWindow). The reader has just made
+	// room: once that opens the window by a quarter of its size over what the peer was last
+	// told, tell it (a window update) -- a peer stopped by a closed window starts again.
+	if (   m_State == TCPStateEstablished
+	    || m_State == TCPStateFinWait1
+	    || m_State == TCPStateFinWait2)
+	{
+		u32 nAdvertised = m_nRcvAdvEdge - m_nRCV_NXT;
+		u32 nWindow = ReceiveWindow ();
+		if (   nWindow > nAdvertised
+		    && nWindow - nAdvertised >= m_nRcvLimit / 4)
+		{
+			SendSegment (TCP_FLAG_ACK, m_nSND_NXT, m_nRCV_NXT);
+		}
+	}
+
 	return nLength;
 }
 
@@ -820,6 +856,11 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 	//u32 nSEG_PRC;	// segment precedence value
 
 	ScanOptions (pHeader);
+
+	if (!(nFlags & TCP_FLAG_SYN))		// Onyx: RFC 7323 section 2.2 (a SYN's window is never scaled)
+	{
+		nSEG_WND <<= m_nSndScale;
+	}
 
 #ifdef TCP_DEBUG
 	CLogger::Get ()->Write (FromTCP, LogDebug,
@@ -1728,6 +1769,9 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 
 	unsigned nDataOffset = 5;
 	assert (nDataOffset * 4 == sizeof (TTCPHeader));
+	// Onyx: the window scale option (RFC 7323) in our SYN; in a SYN+ACK only when the peer's
+	// SYN had it
+	boolean bScaleOption = (nFlags & TCP_FLAG_SYN) && onyx_tcp_ws && (m_bActiveOpen || m_bWindowScale);
 	if (nFlags & TCP_FLAG_SYN)
 	{
 		assert (pNetBuffer == 0);
@@ -1735,6 +1779,10 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 		Purpose = CNetBuffer::TCPSendMSS;
 
 		nDataOffset++;
+		if (bScaleOption)
+		{
+			nDataOffset++;
+		}
 	}
 	unsigned nHeaderLength = nDataOffset * 4;
 
@@ -1760,7 +1808,29 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 	pHeader->nSequenceNumber 	= le2be32 (nSequenceNumber);
 	pHeader->nAcknowledgmentNumber	= nFlags & TCP_FLAG_ACK ? le2be32 (nAcknowledgmentNumber) : 0;
 	pHeader->nDataOffsetFlags	= (nDataOffset << TCP_DATA_OFFSET_SHIFT) | nFlags;
-	pHeader->nWindow		= le2be16 (m_nRCV_WND);
+	// Onyx: the window is the room left in the receive queue (it was a constant: a reader that
+	// stopped reading did not stop the peer, and the queue grew without a limit), shifted when
+	// both sides scale; a SYN's is never shifted.
+	u32 nWindow = ReceiveWindow ();
+	if (nFlags & TCP_FLAG_SYN)
+	{
+		if (nWindow > TCP_MAX_WINDOW)
+		{
+			nWindow = TCP_MAX_WINDOW;
+		}
+		m_nRCV_WND = nWindow;
+	}
+	else
+	{
+		nWindow >>= m_nRcvScale;
+		if (nWindow > TCP_MAX_WINDOW)
+		{
+			nWindow = TCP_MAX_WINDOW;
+		}
+		m_nRCV_WND = nWindow << m_nRcvScale;
+		m_nRcvAdvEdge = m_nRCV_NXT + m_nRCV_WND;
+	}
+	pHeader->nWindow		= le2be16 ((u16) nWindow);
 	pHeader->nUrgentPointer		= le2be16 (m_nSND_UP);
 
 	if (nFlags & TCP_FLAG_SYN)
@@ -1771,6 +1841,15 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 		pOption->nLength = 4;
 		pOption->Data[0] = TCP_CONFIG_MSS >> 8;
 		pOption->Data[1] = TCP_CONFIG_MSS & 0xFF;
+
+		if (bScaleOption)		// NOP, then kind 3, length 3, the shift
+		{
+			u8 *pScale = (u8 *) pHeader->Options + 4;
+			pScale[0] = TCP_OPTION_NOP;
+			pScale[1] = TCP_OPTION_WINDOW_SCALE;
+			pScale[2] = 3;
+			pScale[3] = TCP_CONFIG_WINDOW_SHIFT;
+		}
 	}
 
 	pHeader->nChecksum = 0;		// must be 0 for calculation
@@ -1796,6 +1875,19 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 
 	assert (m_pNetworkLayer != 0);
 	return m_pNetworkLayer->Send (m_ForeignIP, pNetBuffer, IPPROTO_TCP);
+}
+
+// Onyx: the room left in the receive queue
+u32 CTCPConnection::ReceiveWindow (void) const
+{
+	if (!onyx_tcp_ws)
+	{
+		return TCP_CONFIG_WINDOW;
+	}
+
+	u32 nQueued = (u32) m_RxQueue.GetBytesQueued ();
+
+	return nQueued < m_nRcvLimit ? m_nRcvLimit - nQueued : 0;
 }
 
 void CTCPConnection::ScanOptions (TTCPHeader *pHeader)
@@ -1853,6 +1945,27 @@ void CTCPConnection::ScanOptions (TTCPHeader *pHeader)
 			// fall through
 
 		default:
+			// Onyx: the window scale option of the peer's SYN (RFC 7323). An active
+			// open sent it too; a passive one answers with it (SendSegment).
+			if (   onyx_tcp_ws
+			    && pOption->nKind == TCP_OPTION_WINDOW_SCALE
+			    && pOption->nLength == 3
+			    && (u8 *) pOption+3 <= pHeaderEnd
+			    && (nFlags & TCP_FLAG_SYN)
+			    && (m_State == TCPStateSynSent || m_State == TCPStateListen))
+			{
+				m_bWindowScale = TRUE;
+				m_nSndScale = pOption->Data[0] <= 14 ? pOption->Data[0] : 14;
+				m_nRcvScale = TCP_CONFIG_WINDOW_SHIFT;
+				m_nRcvLimit = TCP_CONFIG_WINDOW_SCALED;
+				m_nSSThresh = TCP_CONFIG_SSTHRESH_SCALED;
+			}
+
+			if (pOption->nLength < 2)	// Onyx: a malformed option would loop for ever
+			{
+				return;
+			}
+
 			pOption = (TTCPOption *) ((u8 *) pOption+pOption->nLength);
 			break;
 		}

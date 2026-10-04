@@ -34,6 +34,6 @@
 
 // TCP
 #define TCP_HEADER_LEN		(5*4)		// no option
-#define TCP_MSS_HEADER_LEN	(5*4+4)		// with MSS option
+#define TCP_MSS_HEADER_LEN	(5*4+8)		// with MSS and window scale options (Onyx: was 5*4+4)
 
 #endif

@@ -177,6 +177,14 @@ private:
 	//u16 m_nRCV_UP;	// receive urgent pointer
 	u32 m_nIRS;		// initial receive sequence number
 
+	// Onyx: window scaling (RFC 7323), and a receive window that follows the receive queue
+	boolean m_bWindowScale;	// both sides sent the option in their SYN
+	u8 m_nSndScale;		// the peer's window field is shifted left by this
+	u8 m_nRcvScale;		// ours is shifted right by this
+	u32 m_nRcvLimit;	// the receive queue's limit: the window when the queue is empty
+	u32 m_nRcvAdvEdge;	// RCV.NXT + the window, as last sent
+	u32 ReceiveWindow (void) const;
+
 	// Other Variables
 	u16 m_nSND_MSS;		// send maximum segment size
 

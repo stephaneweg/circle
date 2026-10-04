@@ -194,6 +194,7 @@ struct Ctlr {
 static Ctlr emmc;
 
 static void mmcinterrupt(Ureg*, void*);
+extern int onyx_wlfast;		/* ether4330.c */
 
 static void
 WR(int reg, u32int val)
@@ -490,6 +491,16 @@ emmccmd(u32int cmd, u32int arg, u32int *resp)
 		case 2:
 			WR(Control0, r[Control0] | Dwidth4);
 			//WR(Control0, r[Control0] | Hispeed);
+			/* Onyx (onyx_wlfast & 8): the card was switched to High Speed just before
+			 * (ether4330.c: Fn0's Highspeed register) -- the host follows: its High
+			 * Speed timing and 50 MHz (as Linux runs this chip on a Pi 4). It stayed
+			 * at 25 MHz: 120 us for a 1500-byte frame's data alone. */
+			if(onyx_wlfast & 8){
+				WR(Control0, r[Control0] | Hispeed);
+				delay(1);
+				emmcclk(SDfreqhs);
+				delay(1);
+			}
 			break;
 		}
 	}
@@ -580,8 +591,12 @@ emmcio(int write, uchar *buf, int len)
 		len -= bytes;
 	}
 #endif
-	WR(Irpten, r[Irpten]|Datadone|Err);
-	tsleep(&emmc.r, datadone, 0, 3000);
+	/* Onyx (onyx_wlfast & 4, ether4330.c): a transfer that has ended is not waited for (tsleep
+	 * yields before it looks) */
+	if(!(onyx_wlfast & 4) || !datadone(0)){
+		WR(Irpten, r[Irpten]|Datadone|Err);
+		tsleep(&emmc.r, datadone, 0, 3000);
+	}
 	i = r[Interrupt]&~Cardintr;
 	if((i & Datadone) == 0){
 		print("emmcio: %d timeout intr %x stat %x\n",
