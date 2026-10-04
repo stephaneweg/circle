@@ -56,7 +56,13 @@
 #define TCP_CONFIG_WINDOW_SHIFT		3
 #define TCP_CONFIG_SSTHRESH_SCALED	0x100000	// initial slow-start threshold with a scaled peer window
 
-extern "C" { int onyx_tcp_ws = 0; }		// the switch (0: as before -- no option, a constant 64 KB window)
+extern "C" { int onyx_tcp_ws = 0; }
+extern "C" { int onyx_tcp_window = 180; }
+extern "C" { int onyx_tcp_trace = 0; }
+extern "C" { int onyx_tcp_ackn = 2; }		// (onyx_tcp_ws & 2) full segments for one acknowledgement		// a line in the log at each retransmission timeout	// the scaled receive window, in segments (at most 180)
+// (statistics, read and cleared by the Wi-Fi driver's link line: retransmissions after a timeout,
+// fast retransmissions, the longest retransmission timeout that ran out, in ticks)
+extern "C" { unsigned onyx_tcp_rto_count, onyx_tcp_fast_count, onyx_tcp_rto_max; }		// the switch (0: as before -- no option, a constant 64 KB window)
 
 						// TX stops, if this number of bytes is queued
 #define TCP_CONFIG_TX_THRESHOLD		(onyx_tcp_ws ? 0x40000u : 0x10000u)
@@ -191,6 +197,11 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nRcvScale (0),
 	m_nRcvLimit (TCP_CONFIG_WINDOW),
 	m_nRcvAdvEdge (0),
+	m_nAckPending (0),
+	m_nAckPendingTicks (0),
+	m_nLastRxTicks (0),
+	m_nRxSegments (0),
+	m_nRxUnacceptable (0),
 	m_nSND_MSS (536),	// RFC 1122 section 4.2.2.6
 	m_nIW (4 * m_nSND_MSS),
 	m_nCWND (m_nIW),
@@ -253,6 +264,11 @@ CTCPConnection::CTCPConnection (CNetConfig	*pNetConfig,
 	m_nRcvScale (0),
 	m_nRcvLimit (TCP_CONFIG_WINDOW),
 	m_nRcvAdvEdge (0),
+	m_nAckPending (0),
+	m_nAckPendingTicks (0),
+	m_nLastRxTicks (0),
+	m_nRxSegments (0),
+	m_nRxUnacceptable (0),
 	m_nSND_MSS (536),	// RFC 1122 section 4.2.2.6
 	m_nIW (4 * m_nSND_MSS),
 	m_nCWND (m_nIW),
@@ -652,6 +668,16 @@ void CTCPConnection::Process (void)
 		return;
 	}
 
+	// Onyx: a delayed acknowledgement that no second segment came to send
+	if (   m_nAckPending != 0
+	    && m_pTimer->GetTicks () - m_nAckPendingTicks >= 2
+	    && (   m_State == TCPStateEstablished
+		|| m_State == TCPStateFinWait1
+		|| m_State == TCPStateFinWait2))
+	{
+		SendSegment (TCP_FLAG_ACK, m_nSND_NXT, m_nRCV_NXT);
+	}
+
 	switch (m_State)
 	{
 	case TCPStateClosed:
@@ -714,6 +740,21 @@ void CTCPConnection::Process (void)
 		CLogger::Get ()->Write (FromTCP, LogDebug, "Retransmission (nxt %u, una %u)", m_nSND_NXT-m_nISS, m_nSND_UNA-m_nISS);
 #endif
 		m_bRetransmit = FALSE;
+		if (onyx_tcp_trace)
+		{
+			CString IP;
+			m_ForeignIP.Format (&IP);
+			CLogger::Get ()->Write (FromTCP, LogWarning, "timeout: %u <-> %s:%u, rto %u, una %u nxt %u (%u in flight, %u queued), rcv.nxt %u wnd %u, snd.wnd %u cwnd %u; the peer: %u segments since (%u refused), the last %u ticks ago",
+				(unsigned) m_nOwnPort, (const char *) IP, (unsigned) m_nForeignPort, m_RTOCalculator.GetRTO (), m_nSND_UNA - m_nISS, m_nSND_NXT - m_nISS,
+				m_nSND_NXT - m_nSND_UNA, (unsigned) m_TxQueue.GetBytesQueued (), m_nRCV_NXT - m_nIRS, m_nRCV_WND, m_nSND_WND, m_nCWND,
+				m_nRxSegments, m_nRxUnacceptable, m_pTimer->GetTicks () - m_nLastRxTicks);
+			m_nRxSegments = m_nRxUnacceptable = 0;
+		}
+		onyx_tcp_rto_count++;
+		if (m_RTOCalculator.GetRTO () > onyx_tcp_rto_max)
+		{
+			onyx_tcp_rto_max = m_RTOCalculator.GetRTO ();
+		}
 
 		// congestion control (RFC 5681 section 3.1. equation (4))
 		m_nSSThresh = max (FLIGHT_SIZE / 2, 2 * m_nSND_MSS);
@@ -854,6 +895,9 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 	u32 nSEG_WND = be2le16 (pHeader->nWindow);
 	//u16 nSEG_UP  = be2le16 (pHeader->nUrgentPointer);
 	//u32 nSEG_PRC;	// segment precedence value
+
+	m_nLastRxTicks = m_pTimer->GetTicks ();	// Onyx (onyx_tcp_trace)
+	m_nRxSegments++;
 
 	ScanOptions (pHeader);
 
@@ -1128,6 +1172,7 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 		if (   !bAcceptable
 		    && m_State != TCPStateSynReceived)
 		{
+			m_nRxUnacceptable++;
 			SendSegment (TCP_FLAG_ACK, m_nSND_NXT, m_nRCV_NXT);
 			break;
 		}
@@ -1499,12 +1544,35 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 
 					m_nRCV_NXT += nDataLength;
 
+					u32 nRCV_NXT = m_nRCV_NXT;
 					m_nRCV_NXT = m_ReassemblyQueue.Dequeue (m_nRCV_NXT);
 
 					// m_nRCV_WND should be adjusted here (section 3.7)
 
-					// following ACK could be piggybacked with data
-					SendSegment (TCP_FLAG_ACK, m_nSND_NXT, m_nRCV_NXT);
+					// Onyx (onyx_tcp_ws & 2): delayed acknowledgements (RFC 1122 section
+					// 4.2.3.2, RFC 5681 section 4.2). Every data segment was acknowledged
+					// by a segment of its own: receiving 8 MB/s, the Pi sent 6000 frames a
+					// second on the same radio, and its other connections' segments were
+					// lost among them (an echo answered after 3 s during a download). One
+					// acknowledgement for two full segments; at once for a short segment
+					// (a request, the end of a burst), a PUSH, a hole filled; the odd
+					// full segment is acknowledged by Process within 10 to 20 ms.
+					if (   !(onyx_tcp_ws & 2)
+					    || (nFlags & (TCP_FLAG_PUSH | TCP_FLAG_FIN))
+					    || nDataLength < 1000
+					    || m_nRCV_NXT != nRCV_NXT
+					    || m_nAckPending + 1 >= (unsigned) onyx_tcp_ackn)
+					{
+						// following ACK could be piggybacked with data
+						SendSegment (TCP_FLAG_ACK, m_nSND_NXT, m_nRCV_NXT);
+					}
+					else
+					{
+						if (m_nAckPending++ == 0)
+						{
+							m_nAckPendingTicks = m_pTimer->GetTicks ();
+						}
+					}
 
 					if (   (nFlags & TCP_FLAG_PUSH)
 					    || m_RxQueue.GetBytesQueued () >= TCP_CONFIG_RX_THRESHOLD)
@@ -1723,6 +1791,7 @@ void CTCPConnection::OnDuplicateAck (void)
 	}
 	else if (m_nDupAckCount == 3)
 	{
+		onyx_tcp_fast_count++;
 		// Fast Retransmit and enter Fast Recovery (Section 3.2)
 		m_nSSThresh = max (FLIGHT_SIZE / 2, 2 * m_nSND_MSS);
 		m_nRecover = m_nSND_NXT;
@@ -1811,6 +1880,11 @@ boolean CTCPConnection::SendSegment (unsigned nFlags, u32 nSequenceNumber, u32 n
 	// Onyx: the window is the room left in the receive queue (it was a constant: a reader that
 	// stopped reading did not stop the peer, and the queue grew without a limit), shifted when
 	// both sides scale; a SYN's is never shifted.
+	if (nFlags & TCP_FLAG_ACK)		// Onyx: nothing is left to acknowledge
+	{
+		m_nAckPending = 0;
+	}
+
 	u32 nWindow = ReceiveWindow ();
 	if (nFlags & TCP_FLAG_SYN)
 	{
@@ -1957,7 +2031,7 @@ void CTCPConnection::ScanOptions (TTCPHeader *pHeader)
 				m_bWindowScale = TRUE;
 				m_nSndScale = pOption->Data[0] <= 14 ? pOption->Data[0] : 14;
 				m_nRcvScale = TCP_CONFIG_WINDOW_SHIFT;
-				m_nRcvLimit = TCP_CONFIG_WINDOW_SCALED;
+				m_nRcvLimit = TCP_CONFIG_MSS * (u32) (onyx_tcp_window < 44 ? 44 : onyx_tcp_window > 180 ? 180 : onyx_tcp_window);
 				m_nSSThresh = TCP_CONFIG_SSTHRESH_SCALED;
 			}
 

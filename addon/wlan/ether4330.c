@@ -452,6 +452,8 @@ sdiowr(int fn, int addr, int data)
  *     a transfer is looked at before it is waited for (emmc.c); the reader yields once a frame.
  */
 int onyx_wlfast = 0;
+static int onyx_ampdu_note;	/* (which of the settings below were taken: bits 0..5; refused: bits 8..13) */
+int onyx_wl_ampdu_tx = -1, onyx_wl_ampdu_rx = -1, onyx_wl_ba_wsize = -1, onyx_wl_ampdu_mpdu = -1, onyx_wl_frameburst = -1, onyx_wl_ampdu_rts = -1, onyx_wl_hostreorder = -1, onyx_wl_rx_ba_wsize = -1, onyx_wl_bw5 = -1;
 extern void p9yield(void);
 
 static void
@@ -1366,6 +1368,12 @@ wlreadpkt(Ctlr *ctl)
 
 /* Onyx (onyx_wlstat): the transmit side's counters, read and cleared by rproc's line */
 static unsigned st_tx, st_txbusy, st_txwin, st_txfc, st_txlat, st_lastrx, st_txus, st_consec, st_afterempty;
+/* a frame that could not be written (no credit, flow control, the lock taken): since when; the longest
+ * such wait, and why it began (1 the lock, 2 the window, 3 flow control) */
+static unsigned st_heldsince, st_heldmax, st_heldwhy, st_heldmaxwhy;
+static unsigned st_rxarp, st_rxicmp, st_txarp, st_txicmp;
+extern int onyx_wlstat;
+#define HELD(why) do { if(st_heldsince == 0){ st_heldsince = p9usec() | 1; st_heldwhy = (why); } } while(0)
 extern unsigned p9usec(void);
 
 static void
@@ -1379,6 +1387,7 @@ txstart(Ether *edev)
 	ctl = edev->ctlr;
 	if(!canqlock(&ctl->tlock)){
 		st_txbusy++;
+		HELD(1);
 		return;
 	}
 	if(waserror()){
@@ -1390,12 +1399,16 @@ txstart(Ether *edev)
 		if(ctl->txseq == ctl->txwindow){
 			//print("f");
 			st_txwin++;
+			if(qlen(edev->oq) > 0)
+				HELD(2);
 			unlock(&ctl->txwinlock);
 			break;
 		}
 		if(ctl->fcmask & 1<<2){
 			//print("x");
 			st_txfc++;
+			if(qlen(edev->oq) > 0)
+				HELD(3);
 			unlock(&ctl->txwinlock);
 			break;
 		}
@@ -1403,6 +1416,11 @@ txstart(Ether *edev)
 		b = qget(edev->oq);
 		if(b == nil)
 			break;
+		if(onyx_wlstat && BLEN(b) > 24){
+			uchar *e = b->rp;
+			if(e[12] == 0x08 && e[13] == 0x06) st_txarp++;
+			else if(e[12] == 0x08 && e[13] == 0x00 && e[23] == 1) st_txicmp++;
+		}
 		off = ((uintptr)b->rp & 3) + sizeof(Sdpcm);
 		b = padblock(b, off + 4);
 		len = BLEN(b);
@@ -1428,6 +1446,13 @@ txstart(Ether *edev)
 		}
 		{
 			unsigned t = p9usec();
+			if(st_heldsince != 0){
+				if(t - st_heldsince > st_heldmax){
+					st_heldmax = t - st_heldsince;
+					st_heldmaxwhy = st_heldwhy;
+				}
+				st_heldsince = 0;
+			}
 			packetrw(1, b->rp, len);
 			st_txus += p9usec() - t;
 			st_tx++;
@@ -1483,7 +1508,7 @@ intpoll(Ctlr *ctlr)
 
 extern unsigned p9usec(void);		/* p9util.cpp: the microsecond clock */
 extern void p9yield(void);		/* p9util.cpp: a turn of the scheduler */
-int onyx_wlstat = 0;			/* the receive loop's times and the link's state in the log (the kernel: cmdline netstat=1) */
+int onyx_wlstat;			/* the receive loop's times and the link's state in the log (the kernel: cmdline netstat=1) */
 
 static void
 rproc(void *a)
@@ -1598,6 +1623,11 @@ rproc(void *a)
 				bdc = 4 + (b->rp[p->doffset + 3] << 2);
 				if(BLEN(b) >= p->doffset + bdc + ETHERHDRSIZE){
 					b->rp += p->doffset + bdc;	/* skip BDC header */
+					if(onyx_wlstat){	/* (statistics: ICMP and ARP frames among those received) */
+						uchar *e = b->rp;
+						if(e[12] == 0x08 && e[13] == 0x06) st_rxarp++;
+						else if(e[12] == 0x08 && e[13] == 0x00 && e[23] == 1) st_rxicmp++;
+					}
 					t0 = p9usec();
 					etheriq(edev, b, 1);
 					usup += p9usec() - t0;
@@ -2352,6 +2382,58 @@ lproc(void *a)
 				if(!waserror()){ wlgetvar(ctlr, "bus:rxglom", &glom, 4); poperror(); }
 				if(!waserror()){ wlgetvar(ctlr, "vhtmode", &vht, 4); poperror(); }
 				if(!waserror()){ band = sdiord(Fn0, Busifc) & 3; poperror(); }
+				{
+					extern unsigned onyx_tcp_rto_count, onyx_tcp_fast_count, onyx_tcp_rto_max;
+					print("ether4330: tx: a frame held back %u us at most (%s)%s; tcp: %u timeouts (the longest %u ticks), %u fast retransmissions\n",
+						st_heldmax, st_heldmaxwhy == 1 ? "the lock" : st_heldmaxwhy == 2 ? "no credit" : st_heldmaxwhy == 3 ? "flow control" : "-",
+						st_heldsince ? ", one is held now" : "", onyx_tcp_rto_count, onyx_tcp_rto_max, onyx_tcp_fast_count);
+					{
+						extern unsigned onyx_icmp_echoes;
+						print("ether4330: frames: received %u ICMP, %u ARP; sent %u ICMP, %u ARP; %u echo requests answered\n", st_rxicmp, st_rxarp, st_txicmp, st_txarp, onyx_icmp_echoes);
+						st_rxicmp = st_rxarp = st_txicmp = st_txarp = 0;
+						onyx_icmp_echoes = 0;
+					}
+					st_heldmax = st_heldmaxwhy = 0;
+					onyx_tcp_rto_count = onyx_tcp_fast_count = onyx_tcp_rto_max = 0;
+				}
+				{	/* the firmware's counters: the words that changed since the last line */
+					static uint cnt[2][256];
+					static int which, have;
+					char line[900];
+					int k, n = 0, shown = 0;
+					uint *now = cnt[which], *before = cnt[which ^ 1];
+					memset(now, 0, sizeof cnt[0]);
+					if(!waserror()){
+						wlgetvar(ctlr, "counters", now, sizeof cnt[0]);
+						poperror();
+						if(have){
+							line[0] = 0;
+							for(k = 1; k < 256 && n < (int)sizeof line - 24; k++)
+								if(now[k] != before[k]){
+									n += snprint(line + n, sizeof line - n, "%d:%d ", k, (int)(now[k] - before[k]));
+									if(++shown == 60){
+										print("ether4330: fw counters (v%ud, %ud bytes): %s\n", now[0] & 0xFFFF, now[0] >> 16, line);
+										n = 0; shown = 0; line[0] = 0;
+									}
+								}
+							if(shown)
+								print("ether4330: fw counters (v%ud, %ud bytes): %s\n", now[0] & 0xFFFF, now[0] >> 16, line);
+						}
+						have = 1;
+						which ^= 1;
+					}
+				}
+				{
+					static char *nm[] = { "ampdu", "ampdu_tx", "ampdu_rx", "ampdu_ba_wsize", "ampdu_hostreorder", "ampdu_rx_ba_wsize", "ampdu_rx_factor", "ampdu_rx_density", "ampdu_resp_timeout_no_bar", "ampdu_resp_timeout_b", "ampdu_rxba_timeout", "ampdu_reorder_timeout", "ampdu_clear_dump", "rx_amsdu_in_ampdu", "amsdu" };
+					char line[500];
+					int i, n = 0, v;
+					for(i = 0; i < nelem(nm); i++){
+						v = -1;
+						if(!waserror()){ wlgetvar(ctlr, nm[i], &v, 4); poperror(); }
+						n += snprint(line + n, sizeof line - n, "%s %d, ", nm[i], v);
+					}
+					print("ether4330: aggregation: %s(set %x)\n", line, onyx_ampdu_note);
+				}
 				print("ether4330: link: rate %d.%d Mbit/s, rssi %d dBm, nmode %d, vhtmode %d, ampdu %d, chanspec %x, PM %d, mpc %d, rxglom %d; SDIO bus width bits %d (2: four lines), fast path %d\n",
 					rate / 2, (rate & 1) * 5, rssi, nmode, vht, ampdu, chanspec, pm, mpc, glom, band, onyx_wlfast);
 			}
@@ -2428,6 +2510,46 @@ wlinit(Ether *edev, Ctlr *ctlr)
 	wlcmdint(ctlr, 10, 0);		/* SET_PROMISC */
 	//wlcmdint(ctlr, 0x8e, 0);	/* SET_BAND 0 */
 	//wlsetint(ctlr, "wsec", 1);
+	/*
+	 * Onyx: the firmware's aggregation settings (the kernel sets them; -1: left as they are).
+	 * They are refused while the interface is up.
+	 * ampdu_tx 0 is the kernel's default: with the frames sent aggregated (A-MPDU), a Pi 4
+	 * (firmware 7.45.x, an Orange Livebox on 5 GHz, -70 dBm) lost half to three quarters of
+	 * what it SENT while it was receiving a download -- its pings to the gateway, its answers to
+	 * the PC's pings, its telnet and remote desktop data -- although the firmware counted them
+	 * as sent and acknowledged (txfail 2 in 3453 frames): TCP came back to them one, three,
+	 * seven seconds later, and a remote desktop froze. Its own acknowledgements were lost as
+	 * well, which a download does not notice. Without A-MPDU on the frames sent: none lost.
+	 * (A 40 MHz channel, a block acknowledgement window of 8, no RTS, no A-MSDU: no change.)
+	 */
+	{
+		static struct { char *name; int *v; } set[] = {
+			{ "ampdu_tx", &onyx_wl_ampdu_tx }, { "ampdu_rx", &onyx_wl_ampdu_rx },
+			{ "ampdu_ba_wsize", &onyx_wl_ba_wsize }, { "ampdu_mpdu", &onyx_wl_ampdu_mpdu },
+			{ "frameburst", &onyx_wl_frameburst }, { "ampdu_rts", &onyx_wl_ampdu_rts },
+			{ "ampdu_hostreorder", &onyx_wl_hostreorder }, { "ampdu_rx_ba_wsize", &onyx_wl_rx_ba_wsize },
+		};
+		int i, down = 0;
+		onyx_ampdu_note = 0;
+		for(i = 0; i < nelem(set); i++){
+			if(*set[i].v < 0)
+				continue;
+			if(!down){
+				if(!waserror()){ wlcmdint(ctlr, 3, 0); poperror(); }	/* DOWN */
+				down = 1;
+			}
+			if(!waserror()){ wlsetint(ctlr, set[i].name, *set[i].v); poperror(); onyx_ampdu_note |= 1<<i; }
+			else onyx_ampdu_note |= 0x100<<i;		/* refused */
+		}
+		if(onyx_wl_bw5 > 0){		/* the 5 GHz band's channel widths: band (1: 5 GHz), the widths' bits */
+			uint bw[2];
+			if(!down && !waserror()){ wlcmdint(ctlr, 3, 0); poperror(); }
+			bw[0] = 1;
+			bw[1] = onyx_wl_bw5;
+			if(!waserror()){ wlsetvar(ctlr, "bw_cap", bw, sizeof bw); poperror(); onyx_ampdu_note |= 0x10000; }
+			else onyx_ampdu_note |= 0x20000;
+		}
+	}
 	wlcmdint(ctlr, 2, 1);		/* UP */
 	ctlr->keys[0].len = WMinKeyLen;
 	//wlwepkey(ctlr, 0);

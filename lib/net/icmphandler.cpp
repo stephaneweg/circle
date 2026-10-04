@@ -49,6 +49,8 @@ PACKED;
 
 static const char FromICMP[] = "icmp";
 
+extern "C" { unsigned onyx_icmp_echoes; }	// Onyx: echo requests answered (statistics)
+
 CICMPHandler::CICMPHandler (CNetConfig *pNetConfig, CNetworkLayer *pNetworkLayer,
 			    CNetBufferQueue *pRxQueue, CNetQueue *pNotificationQueue)
 :	m_pNetConfig (pNetConfig),
@@ -122,6 +124,7 @@ void CICMPHandler::Process (void)
 					CChecksumCalculator::SimpleCalculate (pICMPHeader, nLength);
 
 				assert (m_pNetworkLayer != 0);
+				onyx_icmp_echoes++;
 				m_pNetworkLayer->Send (SourceIP, pNetBuffer, IPPROTO_ICMP);
 			}
 

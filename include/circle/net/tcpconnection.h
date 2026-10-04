@@ -184,6 +184,13 @@ private:
 	u32 m_nRcvLimit;	// the receive queue's limit: the window when the queue is empty
 	u32 m_nRcvAdvEdge;	// RCV.NXT + the window, as last sent
 	u32 ReceiveWindow (void) const;
+	// Onyx: delayed acknowledgements (RFC 1122 section 4.2.3.2)
+	unsigned m_nAckPending;		// full segments received and not acknowledged yet
+	unsigned m_nAckPendingTicks;	// when the first of them came
+	// Onyx (onyx_tcp_trace): the peer's segments, for the line a retransmission timeout logs
+	unsigned m_nLastRxTicks;	// when a segment of the peer last came
+	unsigned m_nRxSegments;		// how many came since the last line
+	unsigned m_nRxUnacceptable;	// ... of them, not acceptable (out of the window)
 
 	// Other Variables
 	u16 m_nSND_MSS;		// send maximum segment size
