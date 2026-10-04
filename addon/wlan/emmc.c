@@ -192,9 +192,9 @@ struct Ctlr {
 };
 
 static Ctlr emmc;
+extern int onyx_wlfast;		/* ether4330.c */
 
 static void mmcinterrupt(Ureg*, void*);
-extern int onyx_wlfast;		/* ether4330.c */
 
 static void
 WR(int reg, u32int val)
@@ -202,7 +202,11 @@ WR(int reg, u32int val)
 	volatile u32int *r = (u32int*)EMMCREGS;
 
 	if(0)print("WR %2.2x %x\n", reg<<2, val);
-	microdelay(emmc.fastclock? 2 : 20);
+	/* Onyx (onyx_wlfast & 16): the wait is two periods of the SD clock, which the register's
+	 * write must not come before: 2 us is that at 1 MHz; at 50 MHz it is 40 ns -- a command
+	 * writes eight registers. */
+	if(!(emmc.fastclock && (onyx_wlfast & 16)))
+		microdelay(emmc.fastclock? 2 : 20);
 	coherence();
 	r[reg] = val;
 }
@@ -498,6 +502,8 @@ emmccmd(u32int cmd, u32int arg, u32int *resp)
 			if(onyx_wlfast & 8){
 				WR(Control0, r[Control0] | Hispeed);
 				delay(1);
+				/* (the base clock is 250 MHz on a Pi 4: 50 MHz asked is 41.7 MHz; the
+				 * next step, 62.5 MHz, was tried: the chip does not answer) */
 				emmcclk(SDfreqhs);
 				delay(1);
 			}
