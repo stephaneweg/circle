@@ -1373,6 +1373,10 @@ static unsigned st_tx, st_txbusy, st_txwin, st_txfc, st_txlat, st_lastrx, st_txu
 static unsigned st_heldsince, st_heldmax, st_heldwhy, st_heldmaxwhy;
 static unsigned st_rxarp, st_rxicmp, st_txarp, st_txicmp;
 extern int onyx_wlstat;
+/* Onyx: the clock (p9usec) when a frame was last read from the chip or written to it -- the kernel's
+ * network core sleeps between its rounds once the network has been quiet for a while */
+unsigned onyx_wl_lastact;
+unsigned onyx_wl_polls;			/* the times the chip was asked and had nothing (the polling reader) */
 #define HELD(why) do { if(st_heldsince == 0){ st_heldsince = p9usec() | 1; st_heldwhy = (why); } } while(0)
 extern unsigned p9usec(void);
 
@@ -1416,6 +1420,7 @@ txstart(Ether *edev)
 		b = qget(edev->oq);
 		if(b == nil)
 			break;
+		onyx_wl_lastact = p9usec();
 		if(onyx_wlstat && BLEN(b) > 24){
 			uchar *e = b->rp;
 			if(e[12] == 0x08 && e[13] == 0x06) st_txarp++;
@@ -1491,6 +1496,9 @@ intpoll(Ctlr *ctlr)
 	sbwindow(ctlr->sdregs);
 	i = sdiord(Fn0, Intpend);
 	if(i != 0){
+		/* Onyx: the chip has something to say: the network core stays awake from here (the
+		 * commands that follow each wait a round of its scheduler) */
+		onyx_wl_lastact = p9usec();
 		ints = cfgreadl(Fn1, ctlr->sdregs + Intstatus);
 		cfgwritel(Fn1, ctlr->sdregs + Intstatus, ints);
 		if(ints & MailboxInt){
@@ -1543,6 +1551,7 @@ rproc(void *a)
 			nwaits++;
 			if(!pending){
 				lastwasframe = 0;
+				onyx_wl_polls++;
 				p9yield();
 				continue;
 			}
@@ -1566,6 +1575,7 @@ rproc(void *a)
 		if(lastwasframe) st_consec++; else st_afterempty++;
 		lastwasframe = 1;
 		st_lastrx = t1;
+		onyx_wl_lastact = t1;
 		nbytes += BLEN(b);
 		if(onyx_wlstat && t1 - start >= 5000000){
 			if(nframes > 200)
