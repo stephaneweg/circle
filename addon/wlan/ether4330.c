@@ -2432,7 +2432,9 @@ lproc(void *a)
 						if(!waserror()){ wlgetvar(ctlr, nm[i], &v, 4); poperror(); }
 						n += snprint(line + n, sizeof line - n, "%s %d, ", nm[i], v);
 					}
-					print("ether4330: aggregation: %s(set %x)\n", line, onyx_ampdu_note);
+					v = -1;
+					if(!waserror()){ wlcmd(ctlr, 0, 218, nil, 0, &v, 4); poperror(); }
+					print("ether4330: aggregation: %sframeburst %d (set %x)\n", line, v, onyx_ampdu_note);
 				}
 				print("ether4330: link: rate %d.%d Mbit/s, rssi %d dBm, nmode %d, vhtmode %d, ampdu %d, chanspec %x, PM %d, mpc %d, rxglom %d; SDIO bus width bits %d (2: four lines), fast path %d\n",
 					rate / 2, (rate & 1) * 5, rssi, nmode, vht, ampdu, chanspec, pm, mpc, glom, band, onyx_wlfast);
@@ -2526,7 +2528,7 @@ wlinit(Ether *edev, Ctlr *ctlr)
 		static struct { char *name; int *v; } set[] = {
 			{ "ampdu_tx", &onyx_wl_ampdu_tx }, { "ampdu_rx", &onyx_wl_ampdu_rx },
 			{ "ampdu_ba_wsize", &onyx_wl_ba_wsize }, { "ampdu_mpdu", &onyx_wl_ampdu_mpdu },
-			{ "frameburst", &onyx_wl_frameburst }, { "ampdu_rts", &onyx_wl_ampdu_rts },
+			{ "ampdu_rts", &onyx_wl_ampdu_rts },
 			{ "ampdu_hostreorder", &onyx_wl_hostreorder }, { "ampdu_rx_ba_wsize", &onyx_wl_rx_ba_wsize },
 		};
 		int i, down = 0;
@@ -2540,6 +2542,10 @@ wlinit(Ether *edev, Ctlr *ctlr)
 			}
 			if(!waserror()){ wlsetint(ctlr, set[i].name, *set[i].v); poperror(); onyx_ampdu_note |= 1<<i; }
 			else onyx_ampdu_note |= 0x100<<i;		/* refused */
+		}
+		if(onyx_wl_frameburst >= 0){	/* frame bursting: several frames in one transmit opportunity */
+			if(!waserror()){ wlcmdint(ctlr, 219, onyx_wl_frameburst); poperror(); onyx_ampdu_note |= 0x40000; }
+			else onyx_ampdu_note |= 0x80000;
 		}
 		if(onyx_wl_bw5 > 0){		/* the 5 GHz band's channel widths: band (1: 5 GHz), the widths' bits */
 			uint bw[2];
