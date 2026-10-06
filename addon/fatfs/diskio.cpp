@@ -38,11 +38,16 @@ static const char *s_pVolumeName[FF_VOLUMES] =
 };
 
 // volume -> (physical drive, partition): SD = the first FAT volume of the card (as before),
-// SD1..SD3 = MBR partitions 2..4, then one volume per other drive
+// SD1..SD3 = MBR partitions 2..4; USBn = USB device n whole (its first FAT volume: a superfloppy or
+// its only partition), USBnP1..USBnP4 = its MBR partitions 1..4 (a device with several: the kernel
+// mounts one or the other, kernel/sys/volume.cpp); then one volume per other drive
 PARTITION VolToPart[FF_VOLUMES] =
 {
 	{0, 0}, {0, 2}, {0, 3}, {0, 4},
-	{1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}
+	{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
+	{2, 0}, {2, 1}, {2, 2}, {2, 3}, {2, 4},
+	{3, 0}, {3, 1}, {3, 2}, {3, 3}, {3, 4},
+	{4, 0}, {5, 0}
 };
 
 static CDevice *volume_device (BYTE pdrv)
@@ -292,10 +297,9 @@ DRESULT disk_read (
 	offset *= SECTOR_SIZE;
 	pDevice->Seek (offset);
 
-	int nRead = pDevice->Read (pBuffer, nSize);
-	usb_poll (pdrv);
-	if (nRead < 0)
+	if (pDevice->Read (pBuffer, nSize) < 0)
 	{
+		usb_poll (pdrv);
 		return RES_ERROR;
 	}
 
@@ -310,6 +314,7 @@ DRESULT disk_read (
 		s_pDCKey[nSlot] = dc_key (pdrv, sector);
 	}
 
+	usb_poll (pdrv);			/* (last: the bounce buffer and the cache are done with) */
 	return RES_OK;
 }
 
@@ -364,7 +369,6 @@ DRESULT disk_write (
 	pDevice->Seek (offset);
 
 	int nResult = pDevice->Write (pBuffer, nSize);
-	usb_poll (pdrv);
 
 	/* (Onyx) write-through: the cached copies of these sectors follow the card (or are
 	   dropped if the write failed: what the card holds is unknown then) */
@@ -387,6 +391,8 @@ DRESULT disk_write (
 			}
 		}
 	}
+
+	usb_poll (pdrv);			/* (last: the cache follows the device already) */
 
 	if (nResult < 0)
 	{

@@ -460,8 +460,8 @@ typedef struct {	/* Open object identifier with status */
 /* File/Volume controls           */
 /*--------------------------------*/
 
-#if FF_VOLUMES < 1 || FF_VOLUMES > 10
-#error Wrong FF_VOLUMES setting
+#if FF_VOLUMES < 1 || FF_VOLUMES > 32	/* (Onyx) 10 upstream: only the numeric "0:".."9:" form needs it -- */
+#error Wrong FF_VOLUMES setting		/* the volumes past the 10th are reached by their names (FF_STR_VOLUME_ID) */
 #endif
 static FATFS *FatFs[FF_VOLUMES];	/* Pointer to the filesystem objects (logical drives) */
 static WORD Fsid;					/* Filesystem mount ID */

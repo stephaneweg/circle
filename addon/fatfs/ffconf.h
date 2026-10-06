@@ -178,12 +178,18 @@
 / Drive/Volume Configurations
 /---------------------------------------------------------------------------*/
 
-#define FF_VOLUMES		9
-/* Number of volumes (logical drives) to be used. (1-10) */
+#define FF_VOLUMES		21
+/* Number of volumes (logical drives) to be used. (1-10) -- (Onyx) up to 32: ff.c's check lifted */
 
 
 #define FF_STR_VOLUME_ID	1
-#define FF_VOLUME_STRS		"SD","SD1","SD2","SD3","USB","USB2","USB3","FD","NVME"	/* (Onyx) SD: the card's (first) FAT volume, SD1..SD3: its partitions 2..4 */
+#define FF_VOLUME_STRS		"SD","SD1","SD2","SD3", \
+				"USB1","USB1P1","USB1P2","USB1P3","USB1P4", \
+				"USB2","USB2P1","USB2P2","USB2P3","USB2P4", \
+				"USB3","USB3P1","USB3P2","USB3P3","USB3P4", \
+				"FD","NVME"	/* (Onyx) SD: the card's (first) FAT volume, SD1..SD3: its partitions 2..4;
+					   USBn: a USB device whole (one partition or none), USBnPm: its partition m
+					   when it has several (diskio.cpp VolToPart, kernel/sys/volume.cpp) */
 /* FF_STR_VOLUME_ID switches support for volume ID in arbitrary strings.
 /  When FF_STR_VOLUME_ID is set to 1 or 2, arbitrary strings can be used as drive
 /  number in the path name. FF_VOLUME_STRS defines the volume ID strings for each
