@@ -53,6 +53,22 @@ static CDevice *volume_device (BYTE pdrv)
 
 static CDevice *s_pVolume[FF_VOLUMES] = {0};
 
+/* (Onyx) the kernel's hook (kernel/sys/fslock.cpp): yields once the task has run 10 ms. Called
+   after each transfer with a USB drive (pdrv != 0): its driver waits in a busy loop, and a long
+   FatFs operation on a stick (a format, a big folder) kept the CPU for seconds. Between two
+   transfers is a safe point: the volume lock is held, and a stick pulled out meanwhile only makes
+   the next transfer fail (s_pVolume[] cleared by disk_removed). The SD card keeps its own hooks
+   inside its driver. */
+void OnyxDriverPoll (void) __attribute__ ((weak));
+
+static inline void usb_poll (BYTE pdrv)
+{
+	if (pdrv != 0 && OnyxDriverPoll != 0)
+	{
+		OnyxDriverPoll ();
+	}
+}
+
 /* (Onyx: one bounce buffer per volume -- the SD driver may yield in the middle of a
    transfer, so two volumes' transfers can now overlap; each volume has its own lock) */
 static u8 *s_pBuffer[FF_VOLUMES] = {0};
@@ -276,7 +292,9 @@ DRESULT disk_read (
 	offset *= SECTOR_SIZE;
 	pDevice->Seek (offset);
 
-	if (pDevice->Read (pBuffer, nSize) < 0)
+	int nRead = pDevice->Read (pBuffer, nSize);
+	usb_poll (pdrv);
+	if (nRead < 0)
 	{
 		return RES_ERROR;
 	}
@@ -346,6 +364,7 @@ DRESULT disk_write (
 	pDevice->Seek (offset);
 
 	int nResult = pDevice->Write (pBuffer, nSize);
+	usb_poll (pdrv);
 
 	/* (Onyx) write-through: the cached copies of these sectors follow the card (or are
 	   dropped if the write failed: what the card holds is unknown then) */

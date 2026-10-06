@@ -40,7 +40,10 @@ int ff_mutex_create (	/* Returns 1:Function succeeded or 0:Could not create the 
 )
 {
 	assert (vol <= FF_VOLUMES);
-	assert (s_pMutex[vol] == 0);
+	if (s_pMutex[vol] != 0)		/* (Onyx) kept across an unmount when the kernel has its lock */
+	{
+		return 1;
+	}
 
 	s_pMutex[vol] = new CGenericLock ();
 	assert (s_pMutex[vol] != 0);
@@ -63,6 +66,14 @@ void ff_mutex_delete (
 	assert (vol <= FF_VOLUMES);
 	assert (s_pMutex[vol] != 0);
 
+	/* (Onyx) with the kernel's lock, the CGenericLock is never used: kept, so that a task
+	   that took the volume lock before an unmount (a USB stick pulled out) can still give it */
+	if (OnyxFsLockTake != 0)
+	{
+		return;
+	}
+
+
 	delete s_pMutex[vol];
 	s_pMutex[vol] = 0;
 }
@@ -80,7 +91,6 @@ int ff_mutex_take (	/* Returns 1:Succeeded or 0:Timeout */
 )
 {
 	assert (vol <= FF_VOLUMES);
-	assert (s_pMutex[vol] != 0);
 
 	if (OnyxFsLockTake != 0)
 	{
@@ -89,6 +99,7 @@ int ff_mutex_take (	/* Returns 1:Succeeded or 0:Timeout */
 		return 1;
 	}
 
+	assert (s_pMutex[vol] != 0);
 	s_pMutex[vol]->Acquire ();
 
 	return 1;
@@ -106,7 +117,6 @@ void ff_mutex_give (
 )
 {
 	assert (vol <= FF_VOLUMES);
-	assert (s_pMutex[vol] != 0);
 
 	if (OnyxFsLockGive != 0)
 	{
@@ -115,6 +125,7 @@ void ff_mutex_give (
 		return;
 	}
 
+	assert (s_pMutex[vol] != 0);
 	s_pMutex[vol]->Release ();
 }
 

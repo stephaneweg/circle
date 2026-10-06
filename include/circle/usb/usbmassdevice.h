@@ -45,6 +45,8 @@ public:
 
 	u64 Seek (u64 ullOffset);
 
+	int IOCtl (unsigned long ulCmd, void *pData);	// (Onyx) DEVICE_IOCTL_SYNC: SYNCHRONIZE CACHE
+
 	u64 GetSize (void) const;		// in bytes
 	unsigned GetCapacity (void) const;	// in blocks
 

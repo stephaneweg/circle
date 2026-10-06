@@ -3483,6 +3483,10 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 	if (!fs) return FR_NOT_ENABLED;		/* Is the filesystem object available? */
 #if FF_FS_REENTRANT
 	if (!lock_volume(fs, 1)) return FR_TIMEOUT;	/* Lock the volume, and system if needed */
+	if (FatFs[vol] != fs) {				/* (Onyx) unmounted while this task waited for the lock */
+		unlock_volume(fs, FR_OK);
+		return FR_NOT_ENABLED;
+	}
 #endif
 	*rfs = fs;							/* Return pointer to the filesystem object */
 
@@ -3706,7 +3710,9 @@ static FRESULT validate (	/* Returns FR_OK or FR_INVALID_OBJECT */
 	if (obj && obj->fs && obj->fs->fs_type && obj->id == obj->fs->id) {	/* Test if the object is valid */
 #if FF_FS_REENTRANT
 		if (lock_volume(obj->fs, 0)) {	/* Take a grant to access the volume */
-			if (!(disk_status(obj->fs->pdrv) & STA_NOINIT)) { /* Test if the hosting physical drive is kept initialized */
+			/* (Onyx) tested again once the lock is held: a task that waited for it may find the
+			   volume unmounted meanwhile (a USB stick ejected or pulled out, kernel/sys/volume.cpp) */
+			if (obj->fs->fs_type && obj->id == obj->fs->id && !(disk_status(obj->fs->pdrv) & STA_NOINIT)) { /* Test if the hosting physical drive is kept initialized */
 				res = FR_OK;
 			} else {
 				unlock_volume(obj->fs, FR_OK);	/* Invalidated volume, abort to access */

@@ -113,6 +113,19 @@ struct TSCSITestUnitReady
 }
 PACKED;
 
+// (Onyx) SYNCHRONIZE CACHE (10): the device writes what it holds in its cache (eject)
+struct TSCSISyncCache10
+{
+	u8		OperationCode;
+#define SCSI_OP_SYNC_CACHE10		0x35
+	u8		Flags;
+	u32		LogicalBlockAddress;			// 0: from the start
+	u8		GroupNumber;
+	u16		NumberOfBlocks;				// 0: to the end
+	u8		Control;
+}
+PACKED;
+
 struct TSCSIRequestSense
 {
 	u8		OperationCode;
@@ -470,6 +483,28 @@ int CUSBBulkOnlyMassStorageDevice::Write (const void *pBuffer, size_t nCount)
 	       && --nTries > 0);
 
 	return nResult;
+}
+
+// (Onyx) DEVICE_IOCTL_SYNC (FatFs' CTRL_SYNC): SYNCHRONIZE CACHE. A stick without a write cache
+// may refuse the command: that is not an error (nothing is held back).
+int CUSBBulkOnlyMassStorageDevice::IOCtl (unsigned long ulCmd, void *pData)
+{
+	if (ulCmd != DEVICE_IOCTL_SYNC)
+	{
+		return -1;
+	}
+
+	TSCSISyncCache10 SCSISync;
+	memset (&SCSISync, 0, sizeof SCSISync);
+	SCSISync.OperationCode = SCSI_OP_SYNC_CACHE10;
+	SCSISync.Control       = SCSI_CONTROL;
+
+	if (Command (&SCSISync, sizeof SCSISync, 0, 0, FALSE) < 0)
+	{
+		Reset ();			// (the command failed: the transport back to a known state)
+	}
+
+	return 0;
 }
 
 u64 CUSBBulkOnlyMassStorageDevice::Seek (u64 ullOffset)
