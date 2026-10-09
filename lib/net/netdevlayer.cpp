@@ -185,6 +185,12 @@ CNetBuffer *CNetDeviceLayer::Receive (void)
 	return m_RxQueue.Dequeue ();
 }
 
+void CNetDeviceLayer::SetDeviceType (TNetDeviceType DeviceType)	// (Onyx)
+{
+	m_DeviceType = DeviceType;
+	m_pDevice = 0;
+}
+
 boolean CNetDeviceLayer::IsRunning (void) const
 {
 	return m_pDevice != 0 && m_pDevice->IsLinkUp ();

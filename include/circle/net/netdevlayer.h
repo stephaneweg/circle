@@ -46,6 +46,10 @@ public:
 
 	boolean IsRunning (void) const;		// is net device available and link up?
 
+	// Onyx: use another kind of net device (the wired one, else the WLAN); the next Process ()
+	// looks it up. Call it before the link is up (DHCP starts on the first device running).
+	void SetDeviceType (TNetDeviceType DeviceType);
+
 	// terminated with 00:00:00:00:00:00
 	boolean SetMulticastFilter (const u8 Groups[][MAC_ADDRESS_SIZE]);
 
