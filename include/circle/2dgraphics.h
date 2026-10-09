@@ -241,6 +241,12 @@ public:
 	boolean UpdateDisplayPoll (void);
 
 private:
+#if RASPPI >= 5
+	// (Onyx) the rectangle's alpha bytes set to 0xFF before it is sent: the Pi 5's display takes
+	// the alpha (framebuffer_ignore_alpha is not always honoured -- the Pi 500), Onyx's pixels have 0
+	void Opaque (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight);
+#endif
+
 	void SetPixel (unsigned nX, unsigned nY, CDisplay::TRawColor nColor)
 	{
 		switch (m_nDepth)

@@ -537,6 +537,20 @@ CDisplay *C2DGraphics::GetDisplay (void)
 	return m_pDisplay;
 }
 
+#if RASPPI >= 5 && DEPTH == 32
+void C2DGraphics::Opaque (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)	// (Onyx)
+{
+	if (!m_pBuffer8 || nPosX >= m_nWidth || nPosY >= m_nHeight) return;
+	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
+	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+	for (unsigned y = nPosY; y < nPosY + nHeight; y++)
+	{
+		u32 *p = (u32 *) m_pBuffer8 + (uintptr) y * m_nWidth + nPosX;
+		for (unsigned x = 0; x < nWidth; x++) p[x] |= 0xFF000000U;
+	}
+}
+#endif
+
 void C2DGraphics::UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)
 {
 #if RASPPI <= 4
@@ -566,6 +580,9 @@ void C2DGraphics::UpdateDisplay (unsigned nPosX, unsigned nPosY, unsigned nWidth
 	}
 
 	// (Onyx) the frame buffer's 2D DMA reads the rectangle in place (a source stride: no gathering)
+#if RASPPI >= 5 && DEPTH == 32
+	Opaque (nPosX, nPosY, nWidth, nHeight);
+#endif
 	unsigned nBytes = m_nDepth / 8;
 	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
 	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes);
@@ -591,6 +608,9 @@ void C2DGraphics::UpdateDisplayAsync (unsigned nPosX, unsigned nPosY, unsigned n
 	}
 	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
 	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+#if RASPPI >= 5 && DEPTH == 32
+	Opaque (nPosX, nPosY, nWidth, nHeight);
+#endif
 	unsigned nBytes = m_nDepth / 8;
 	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
 	m_pFrameBuffer->SetAreaPitch (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes,
@@ -614,6 +634,9 @@ boolean C2DGraphics::UpdateDisplayStart (unsigned nPosX, unsigned nPosY, unsigne
 	}
 	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
 	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;
+#if RASPPI >= 5 && DEPTH == 32
+	Opaque (nPosX, nPosY, nWidth, nHeight);
+#endif
 	unsigned nBytes = m_nDepth / 8;
 	CDisplay::TArea Area {nPosX, nPosX + nWidth - 1, nPosY, nPosY + nHeight - 1};
 	return m_pFrameBuffer->SetAreaPitchStart (Area, m_pBuffer8 + (nPosY * m_nWidth + nPosX) * nBytes, m_nWidth * nBytes);
@@ -641,6 +664,9 @@ void C2DGraphics::UpdateDisplay (void)
 #endif
 	{
 		CDisplay::TArea Area {0, m_nWidth-1, 0, m_nHeight-1};
+#if RASPPI >= 5 && DEPTH == 32
+		Opaque (0, 0, m_nWidth, m_nHeight);
+#endif
 
 		if (!m_pDisplay)
 		{
