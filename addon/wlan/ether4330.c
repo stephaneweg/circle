@@ -175,6 +175,7 @@ struct Ctlr {
 	int	chanid;
 	uchar	bssid[Eaddrlen];
 	char	essid[WNameLen + 1];
+	char	scanssid[WNameLen + 1];	/* directed SSID for hidden-net scan */
 	WKey	keys[WNKeys];
 	Block	*rsp;
 	Block	*scanb;
@@ -250,7 +251,7 @@ static Cmdtab cmds[] = {
 	{CMdebug,	"debug", 2},
 	{CMjoin,	"join", 5},
 	{CMdisassoc,	"disassoc", 2},
-	{CMescan,	"escan", 2},
+	{CMescan,	"escan", 3},
 	{CMcountry,	"country", 2},
 	{CMcreate,	"create", 4},
 	{CMdown,	"down", 1},
@@ -2155,7 +2156,7 @@ int onyx_scan_nssid;
 int onyx_scan_5g_bias;
 
 static void
-wlscanstart(Ctlr *ctl)
+wlscanstart(Ctlr *ctl, char *ssid)
 {
 	/* version[4] action[2] sync_id[2] ssidlen[4] ssid[32] bssid[6] bss_type[1]
 		scan_type[1] nprobes[4] active_time[4] passive_time[4] home_time[4]
@@ -2167,7 +2168,7 @@ wlscanstart(Ctlr *ctl)
 	 * access point on a crowded 2.4 GHz channel while the same network was there on 5 GHz), and
 	 * an access point that leaves its name out of its beacons was not seen as that network.
 	 */
-	uchar params[4+2+2+4+32+6+1+1+4*4+2+2+5*(4+32)];
+	uchar params[4+2+2+4+32+6+1+1+4*4+2+2+6*(4+32)];
 	uchar *p;
 	int i, n, nssid;
 
@@ -2189,15 +2190,27 @@ wlscanstart(Ctlr *ctl)
 		nssid = 0;
 	if(nssid > 4)
 		nssid = 4;
+	/* (upstream 51.1: the directed probe for a hidden network, ctl->scanssid -- one more name) */
+	if(ssid != nil && *ssid != 0){
+		for(i = 0; i < nssid; i++)
+			if(strcmp(onyx_scan_ssid[i], ssid) == 0)
+				break;
+		if(i == nssid)
+			nssid++;
+		else
+			ssid = nil;
+	}else
+		ssid = nil;
 	p = put2(p, 0);			/* nchans: all */
 	p = put2(p, 1 + nssid);		/* nssids */
 	p = put4(p, 0);			/* the wildcard */
 	p += 32;
 	for(i = 0; i < nssid; i++){
-		n = strlen(onyx_scan_ssid[i]);
+		char *s = ssid != nil && i == nssid - 1 ? ssid : onyx_scan_ssid[i];
+		n = strlen(s);
 		n = MIN(n, 32);
 		p = put4(p, n);
-		memmove(p, onyx_scan_ssid[i], n);
+		memmove(p, s, n);
 		p += 32;
 	}
 
@@ -2455,7 +2468,7 @@ lproc(void *a)
 				if(waserror())
 					ctlr->scansecs = 0;
 				else{
-					wlscanstart(ctlr);
+					wlscanstart(ctlr, ctlr->scanssid);
 					poperror();
 				}
 				secs = ctlr->scansecs;
@@ -2762,8 +2775,11 @@ setauth(Ctlr *ctlr, Cmdbuf *cb, char *a)
 	uchar wpaie[32];
 	int i;
 
-	i = parsehex((char*)wpaie, sizeof wpaie, a);
-	if(i < 2 || i != wpaie[1] + 2)
+	i = parsehex((char*)wpaie, 2, a);
+	if(i != 2 || wpaie[1] > sizeof wpaie - 2)
+		cmderror(cb, "bad wpa ie syntax");
+	i = parsehex((char*)wpaie, wpaie[1] + 2, a);
+	if(i != wpaie[1] + 2)
 		cmderror(cb, "bad wpa ie syntax");
 	if(wpaie[0] == 0xdd)
 		ctlr->cryptotype = Wpa;
@@ -2895,7 +2911,12 @@ etherbcmctl(Ether* edev, const void* buf, long n)
 		if (ctlr->status != Disconnected)
 			wlcmdint(ctlr, 52, atoi(cb->f[1]));	/* DISASSOC */
 		break;
-	case CMescan:		/* escan seconds */
+	case CMescan:		/* escan seconds [ssid] */
+		if(cb->argc > 2 && cb->f[2] != nil)
+			strncpy(ctlr->scanssid, cb->f[2], sizeof(ctlr->scanssid) - 1);
+		else
+			ctlr->scanssid[0] = '\0';
+		ctlr->scanssid[sizeof(ctlr->scanssid) - 1] = '\0';
 		etherbcmscan(edev, atoi(cb->f[1]));
 		break;
 	case CMcountry:		/* country alpha2 */

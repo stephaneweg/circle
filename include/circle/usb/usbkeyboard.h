@@ -60,14 +60,18 @@ public:
 	void UnregisterKeyStatusHandlerRaw (void);
 
 	// works in cooked and raw mode
-	boolean SetLEDs (u8 ucStatus);		// must not be called in interrupt context
+	virtual boolean SetLEDs (u8 ucStatus);		// must not be called in interrupt context
 
 	// Zircon: access the cooked-mode key map so the layout can be switched at runtime.
 	CKeyMap *GetKeyMap (void)	{ return m_Behaviour.GetKeyMap (); }
 
-private:
+
+protected:
+	boolean ConfigureKeyboard (unsigned nReportSize);
 	void ReportHandler (const u8 *pReport, unsigned nReportSize);
 
+
+private:
 	static boolean FindByte (const u8 *pBuffer, u8 ucByte, unsigned nLength);
 
 private:

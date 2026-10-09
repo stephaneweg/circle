@@ -1339,12 +1339,6 @@ int CTCPConnection::PacketReceived (CNetBuffer	*pPacket,
 					m_bFINQueued = FALSE;
 				}
 
-				if (   m_State == TCPStateEstablished
-				    && nBytesAck == 1)
-				{
-					nBytesAck--;
-				}
-				
 				if (nBytesAck > 0)
 				{
 					m_TxQueue.Flush (nBytesAck);
