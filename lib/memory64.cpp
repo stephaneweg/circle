@@ -127,6 +127,8 @@ void CMemorySystem::Destructor (void)
 
 #if RASPPI >= 4
 
+u64 g_ulOnyxCrashArea = 0;			// (Onyx: the crash record's address, kern/crashlog.h)
+
 void CMemorySystem::SetupHighMem (void)
 {
 #ifndef KASAN_SUPPORTED
@@ -146,6 +148,16 @@ void CMemorySystem::SetupHighMem (void)
 			nHighSize = MEM_HIGHMEM_END+1 - MEM_HIGHMEM_START;
 		}
 
+#if RASPPI >= 5
+		// Onyx: on the Pi 5 the RAM is one block below 8 GB (no MMIO hole: the I/O is above
+		// 64 GB), so seg0 = [1GB, min (RAM, 8GB)) is all of it. The kernel's crash record
+		// (kern/crashlog.h) takes the top 64 KB of seg0, out of the allocators.
+		if (nHighSize >= 0x100000)
+		{
+			nHighSize -= ONYX_CRASH_AREA_SIZE;
+			g_ulOnyxCrashArea = MEM_HIGHMEM_START + nHighSize;
+		}
+#endif
 		m_nMemSizeHigh = (size_t) nHighSize;
 
 		// Onyx: the high region (1-3GB) backs the HIGH-zone page allocator (app
@@ -156,11 +168,16 @@ void CMemorySystem::SetupHighMem (void)
 		AddHighSegment (MEM_HIGHMEM_START, (size_t) nHighSize);	// high segment 0
 	}
 
+#if RASPPI <= 4
 	// Onyx: reclaim every RAM byte above seg0 that the boot table left unused -- the
 	// [3GB, ~3.94GB) low-RAM top (mapped DEVICE by the ctor) AND any chunk relocated above
 	// 4GB (which the ctor skips). Reads the real extents from the firmware device tree, so
 	// it stops at real RAM (never the MMIO window). Safe no-op if the DTB is absent.
 	SetupHighMemAbove4G ();
+#endif
+	// (Not on the Pi 5: seg0 already covers [1GB, 8GB), and the fallback (B) below would hand out
+	// [4GB, 8GB) a second time. RAM above 8 GB (a 16 GB board) stays unused until the Pi 5 user
+	// window moves above it: docs/PI5-PORT.md §5.2, policy (B).)
 }
 
 // Onyx: register a contiguous high-RAM segment with its own page allocator.
@@ -183,8 +200,6 @@ void CMemorySystem::AddHighSegment (uintptr nBase, size_t nSize)
 // relocated chunk >4GB, bounded to firmware-declared RAM (never the MMIO window). (B) If the
 // DTB is unavailable (not captured) or yields nothing >4GB, fall back to GetRAMSize and map
 // [4GB, totalRAM) -- provably real RAM (see below). Safe no-op on <=4GB boards.
-u64 g_ulOnyxCrashArea = 0;
-
 void CMemorySystem::SetupHighMemAbove4G (void)
 {
 	if (m_pTranslationTable == 0)			// MMU disabled -> cannot add mappings
