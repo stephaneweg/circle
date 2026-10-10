@@ -152,6 +152,11 @@ boolean CKeyMap::SetEntry (u8 nTable, u8 nPhyCode, u16 nValue)
 
 u16 CKeyMap::Translate (u8 nPhyCode, u8 nModifiers)
 {
+	// (Onyx) the Japanese keyboards' Ro and Yen keys (International1 / International3) are past the
+	// table's 128 rows: taken at two rows no layout uses (0x7D Paste, 0x7E Find), SD:/etc/keymaps/JP.kmap's
+	if (nPhyCode == 0x87) nPhyCode = 0x7D;
+	else if (nPhyCode == 0x89) nPhyCode = 0x7E;
+
 	if (   nPhyCode == 0
 	    || nPhyCode > PHY_MAX_CODE)
 	{
