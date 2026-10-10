@@ -538,8 +538,11 @@ CDisplay *C2DGraphics::GetDisplay (void)
 }
 
 #if RASPPI >= 5 && DEPTH == 32
+boolean C2DGraphics::s_bOnyxOpaque = TRUE;
+
 void C2DGraphics::Opaque (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight)	// (Onyx)
 {
+	if (!s_bOnyxOpaque) return;
 	if (!m_pBuffer8 || nPosX >= m_nWidth || nPosY >= m_nHeight) return;
 	if (nWidth > m_nWidth - nPosX) nWidth = m_nWidth - nPosX;
 	if (nHeight > m_nHeight - nPosY) nHeight = m_nHeight - nPosY;

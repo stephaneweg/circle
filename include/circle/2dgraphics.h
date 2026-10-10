@@ -240,6 +240,12 @@ public:
 	boolean UpdateDisplayStart (unsigned nPosX, unsigned nPosY, unsigned nWidth, unsigned nHeight);
 	boolean UpdateDisplayPoll (void);
 
+#if RASPPI >= 5
+	// (Onyx) TRUE (the default): the presented pixels made opaque (Opaque below); FALSE when the
+	// firmware honours framebuffer_ignore_alpha (a recent bootloader: the kernel's cmdline opaque=0)
+	static boolean s_bOnyxOpaque;
+#endif
+
 private:
 #if RASPPI >= 5
 	// (Onyx) the rectangle's alpha bytes set to 0xFF before it is sent: the Pi 5's display takes
