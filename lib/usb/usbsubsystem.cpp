@@ -30,7 +30,13 @@ CUSBSubSystem *CUSBSubSystem::s_pThis = nullptr;
 CUSBSubSystem::CUSBSubSystem (CInterruptSystem *pInterruptSystem, CTimer *pTimer,
 			      boolean bPlugAndPlay)
 :	m_bPlugAndPlay (bPlugAndPlay),
+#if RASPPI >= 5
 	m_Southbridge (pInterruptSystem),
+#else
+	m_pInterruptSystem (pInterruptSystem),
+	m_pTimer (pTimer),
+	m_bInternalController (FALSE),
+#endif
 	m_SharedMemAllocator (
 		CMemorySystem::GetCoherentPage (COHERENT_SLOT_XHCI_START),
 		CMemorySystem::GetCoherentPage (COHERENT_SLOT_XHCI_END) + PAGE_SIZE - 1)
@@ -38,13 +44,30 @@ CUSBSubSystem::CUSBSubSystem (CInterruptSystem *pInterruptSystem, CTimer *pTimer
 	assert (!s_pThis);
 	s_pThis = this;
 
+#if RASPPI == 4
+	// (Onyx) the VL805 (the USB-A sockets) now, the SoC's controller (USB-C) if requested
+	m_pXHCIDevice[0] = new CXHCIDevice (pInterruptSystem, pTimer, bPlugAndPlay,
+					    0, &m_SharedMemAllocator);
+	assert (m_pXHCIDevice[0]);
+	m_pXHCIDevice[1] = nullptr;
+#else
 	for (unsigned i = 0; i < NumDevices; i++)
 	{
 		m_pXHCIDevice[i] = new CXHCIDevice (pInterruptSystem, pTimer, bPlugAndPlay,
 						    i, &m_SharedMemAllocator);
 		assert (m_pXHCIDevice[i]);
 	}
+#endif
 }
+
+#if RASPPI == 4
+
+void CUSBSubSystem::EnableInternalController (void)
+{
+	m_bInternalController = TRUE;
+}
+
+#endif
 
 CUSBSubSystem::~CUSBSubSystem (void)
 {
@@ -59,6 +82,35 @@ CUSBSubSystem::~CUSBSubSystem (void)
 
 boolean CUSBSubSystem::Initialize (boolean bScanDevices)
 {
+#if RASPPI == 4
+	// (Onyx) the VL805 first, as before; the USB-C socket's controller is an extra: its failure
+	// (otg_mode=1 missing, nothing behind it) leaves the USB-A sockets working
+	assert (m_pXHCIDevice[0]);
+	if (!m_pXHCIDevice[0]->Initialize (bScanDevices))
+	{
+		LOGERR ("Cannot initialize xHCI device #0");
+
+		return FALSE;
+	}
+
+	if (m_bInternalController)
+	{
+		m_pXHCIDevice[1] = new CXHCIDevice (m_pInterruptSystem, m_pTimer, m_bPlugAndPlay,
+						    1, &m_SharedMemAllocator);
+		assert (m_pXHCIDevice[1]);
+		if (m_pXHCIDevice[1]->Initialize (bScanDevices))
+		{
+			LOGNOTE ("USB-C socket: xHCI device #1 running");
+		}
+		else
+		{
+			LOGWARN ("Cannot initialize xHCI device #1 (USB-C socket; config.txt otg_mode=1?)");
+
+			delete m_pXHCIDevice[1];
+			m_pXHCIDevice[1] = nullptr;
+		}
+	}
+#else
 	if (!m_Southbridge.Initialize ())
 	{
 		LOGERR ("Cannot initialize RP1 device");
@@ -76,6 +128,7 @@ boolean CUSBSubSystem::Initialize (boolean bScanDevices)
 			return FALSE;
 		}
 	}
+#endif
 
 #if !defined (NDEBUG) && defined (XHCI_DEBUG2)
 	DumpStatus ();
@@ -91,7 +144,11 @@ boolean CUSBSubSystem::UpdatePlugAndPlay (void)
 
 	for (unsigned i = 0; i < NumDevices; i++)
 	{
-		assert (m_pXHCIDevice[i]);
+		if (!m_pXHCIDevice[i])		// (Onyx) the Pi 4's USB-C controller, not enabled
+		{
+			continue;
+		}
+
 		if (m_pXHCIDevice[i]->UpdatePlugAndPlay ())
 		{
 			bResult = TRUE;
@@ -146,7 +203,9 @@ void CUSBSubSystem::DumpStatus (void)
 		}
 	}
 
+#if RASPPI >= 5
 	m_Southbridge.DumpStatus ();
+#endif
 
 	LOGDBG ("%u KB shared memory free",
 		(unsigned) (m_SharedMemAllocator.GetFreeSpace () / 1024));

@@ -34,7 +34,7 @@ CXHCISlotManager::CXHCISlotManager (CXHCIDevice *pXHCIDevice)
 
 	m_pMMIO->op_write32 (XHCI_REG_OP_CONFIG,   (m_pMMIO->op_read32 (XHCI_REG_OP_CONFIG)
 						 & ~XHCI_REG_OP_CONFIG_MAX_SLOTS_EN__MASK)
-						 | XHCI_CONFIG_MAX_SLOTS);
+						 | m_pXHCIDevice->GetMaxSlots ());	// (Onyx)
 
 	m_pDCBAA = (u64 *) m_pXHCIDevice->AllocateSharedMem (  (XHCI_CONFIG_MAX_SLOTS + 1)
 							     * sizeof (u64));

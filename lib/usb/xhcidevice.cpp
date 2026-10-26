@@ -32,7 +32,7 @@
 #ifdef USE_XHCI_INTERNAL
 	#define ARM_IRQ_XHCI	ARM_IRQ_XHCI_INTERNAL
 #else
-	#define ARM_IRQ_XHCI	ARM_IRQ_PCIE_HOST_INTA
+	#define ARM_IRQ_XHCI	m_nIRQ		// (Onyx) the VL805's or the SoC's (XHCI_PI4_DUAL)
 #endif
 #else
 	#define ARM_IRQ_XHCI	(m_nDevice == 0 ? RP1_IRQ_USBHOST0_0 : RP1_IRQ_USBHOST1_0)
@@ -46,6 +46,12 @@ CXHCIDevice::CXHCIDevice (CInterruptSystem *pInterruptSystem, CTimer *pTimer, bo
 	m_pInterruptSystem (pInterruptSystem),
 	m_bInterruptConnected (FALSE),
 	m_nDevice (nDevice),
+#ifdef XHCI_PI4_DUAL
+	m_bInternal (nDevice == 1),
+	m_nIRQ (nDevice == 1 ? ARM_IRQ_XHCI_INTERNAL : ARM_IRQ_PCIE_HOST_INTA),
+#endif
+	m_nMaxSlots (XHCI_CONFIG_MAX_SLOTS),
+	m_nContextSize (XHCI_CONTEXT_SIZE),
 #if RASPPI == 4 && !defined (USE_XHCI_INTERNAL)
 	m_PCIeHostBridge (PCIE_BUS_ONBOARD, pInterruptSystem),
 #endif
@@ -116,8 +122,15 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 	// init class-specific allocators in USB library
 	INIT_PROTECTED_CLASS_ALLOCATOR (CUSBRequest, XHCI_CONFIG_MAX_REQUESTS, IRQ_LEVEL);
 
-#ifdef USE_XHCI_INTERNAL
+#if defined (USE_XHCI_INTERNAL) || defined (XHCI_PI4_DUAL)
+#ifdef XHCI_PI4_DUAL
+	// (Onyx) the SoC's controller has no PCIe to bring up: the firmware routes the USB-C
+	// socket to it (config.txt otg_mode=1); the Raspberry Pi 4 B powers it with that alone
+	if (   m_bInternal
+	    && CMachineInfo::Get ()->GetMachineModel () != MachineModel4B)
+#else
 	if (CMachineInfo::Get ()->GetMachineModel () != MachineModel4B)
+#endif
 	{
 		CBcmPropertyTags Tags;
 		TPropertyTagPowerState PowerState;
@@ -132,8 +145,11 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 			return FALSE;
 		}
 	}
-#elif RASPPI == 4
+#endif
+#if RASPPI == 4 && !defined (USE_XHCI_INTERNAL)
 	// PCIe init
+	if (!m_bInternal)		// (Onyx) the VL805 alone
+	{
 	if (!m_PCIeHostBridge.Initialize ())
 	{
 		CLogger::Get ()->Write (From, LogError, "Cannot initialize PCIe host bridge");
@@ -155,11 +171,22 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 
 		return FALSE;
 	}
+	}
 #endif
 
 	uintptr nBaseAddress = ARM_XHCI0_BASE;
+	u16 usSupportedVersion = XHCI_SUPPORTED_VERSION;
 #if RASPPI == 4
+#ifdef XHCI_PI4_DUAL
+	assert (m_nDevice <= 1);
+	if (m_bInternal)
+	{
+		nBaseAddress = ARM_XHCI1_BASE;
+		usSupportedVersion = XHCI_SUPPORTED_VERSION_INTERNAL;
+	}
+#else
 	assert (m_nDevice == 0);
+#endif
 #else
 	assert (m_nDevice <= 1);
 	if (m_nDevice == 1)
@@ -170,7 +197,7 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 
 	// version check
 	u16 usVersion = read16 (nBaseAddress + XHCI_REG_CAP_HCIVERSION);
-	if (usVersion != XHCI_SUPPORTED_VERSION)
+	if (usVersion != usSupportedVersion)
 	{
 		CLogger::Get ()->Write (From, LogError, "Unsupported xHCI version (%X)",
 					(unsigned) usVersion);
@@ -183,11 +210,15 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 	assert (m_pMMIO != 0);
 
 	// get some capabilities
-#ifndef NDEBUG
 	unsigned nMaxSlots =   m_pMMIO->cap_read32 (XHCI_REG_CAP_HCSPARAMS1)
 			     & XHCI_REG_CAP_HCSPARAMS1_MAX_SLOTS__MASK;
-	assert (XHCI_CONFIG_MAX_SLOTS <= nMaxSlots);
+#ifdef XHCI_PI4_DUAL
+	if (m_nMaxSlots > nMaxSlots)		// (Onyx) the VL805 has fewer than the arrays hold
+	{
+		m_nMaxSlots = nMaxSlots;
+	}
 #endif
+	assert (m_nMaxSlots <= nMaxSlots);
 
 	unsigned nMaxPorts =      (m_pMMIO->cap_read32 (XHCI_REG_CAP_HCSPARAMS1)
 			        & XHCI_REG_CAP_HCSPARAMS1_MAX_PORTS__MASK)
@@ -198,7 +229,11 @@ boolean CXHCIDevice::Initialize (boolean bScanDevices)
 				         & XHCI_REG_CAP_HCSPARAMS2_MAX_SCRATCHPAD_BUFS__MASK)
 				      >> XHCI_REG_CAP_HCSPARAMS2_MAX_SCRATCHPAD_BUFS__SHIFT;
 
-#if XHCI_CONTEXT_SIZE == 64
+#ifdef XHCI_PI4_DUAL
+	// (Onyx) the VL805's contexts are 32 bytes, the SoC controller's 64
+	m_nContextSize = m_pMMIO->cap_read32 (XHCI_REG_CAP_HCCPARAMS) & XHCI_REG_CAP_HCCPARAMS1_CSZ
+		       ? 64 : 32;
+#elif XHCI_CONTEXT_SIZE == 64
 	assert (m_pMMIO->cap_read32 (XHCI_REG_CAP_HCCPARAMS) & XHCI_REG_CAP_HCCPARAMS1_CSZ);
 #else
 	assert (!(m_pMMIO->cap_read32 (XHCI_REG_CAP_HCCPARAMS) & XHCI_REG_CAP_HCCPARAMS1_CSZ));
@@ -461,7 +496,10 @@ void CXHCIDevice::DumpStatus (void)
 	m_pMMIO->DumpStatus ();
 
 #if RASPPI == 4 && !defined (USE_XHCI_INTERNAL)
-	m_PCIeHostBridge.DumpStatus (XHCI_PCIE_SLOT, XHCI_PCIE_FUNC);
+	if (!m_bInternal)
+	{
+		m_PCIeHostBridge.DumpStatus (XHCI_PCIE_SLOT, XHCI_PCIE_FUNC);
+	}
 #endif
 
 	if (m_bOwnSharedMemAllocator)

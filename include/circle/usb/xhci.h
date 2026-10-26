@@ -39,6 +39,8 @@
 #ifdef USE_XHCI_INTERNAL
 	#define XHCI_TO_DMA(ptr)	((u64) (uintptr) (ptr))
 #else
+	// (Onyx) XHCI_PI4_DUAL: the Pi 4's PCIe inbound window starts at 0 (memorymap64.h), so
+	// this is the physical address the SoC's own controller wants too
 	#define XHCI_TO_DMA(ptr)	((u64) (uintptr) (ptr) \
 					 | CBcmPCIeHostBridge::GetDMAAddress (PCIE_BUS_XHCI))
 #endif
@@ -537,5 +539,17 @@ ASSERT_STATIC (sizeof (TXHCIInputContext) == 0x840);
 #else
 ASSERT_STATIC (sizeof (TXHCIInputContext) == 0x420);
 #endif
+
+// (Onyx) the contexts laid out by the controller's own stride (CXHCIDevice::GetContextSize ():
+// 32 or 64 bytes, the HCCPARAMS1 CSZ bit), not by the structures' size -- the Raspberry Pi 4
+// drives the VL805 (32) and its SoC's controller (64) at once (XHCI_PI4_DUAL). The structures
+// hold the first 32 bytes of a context, what the driver reads and writes.
+#define XHCI_DEVICE_CONTEXT_SIZE(stride)	((XHCI_MAX_ENDPOINTS + 1) * (stride))
+#define XHCI_INPUT_CONTEXT_SIZE(stride)		((XHCI_MAX_ENDPOINTS + 2) * (stride))
+
+#define XHCI_INPUT_CONTROL(input)		(&(input)->Control)
+#define XHCI_INPUT_DEVICE(input, stride)	((TXHCIDeviceContext *) ((u8 *) (input) + (stride)))
+#define XHCI_INPUT_SLOT(input, stride)		(&XHCI_INPUT_DEVICE (input, stride)->Slot)
+#define XHCI_INPUT_ENDPOINT(input, stride, i)	((TXHCIEndpointContext *) ((u8 *) (input) + (2+(i)) * (stride)))
 
 #endif

@@ -38,7 +38,8 @@ CXHCIUSBDevice::CXHCIUSBDevice (CXHCIDevice *pXHCIDevice, TUSBSpeed Speed, CXHCI
 	m_pInputContextBuffer (0)
 {
 	m_pDeviceContext =
-		(TXHCIDeviceContext *) pXHCIDevice->AllocateSharedMem (sizeof (TXHCIDeviceContext));
+		(TXHCIDeviceContext *) pXHCIDevice->AllocateSharedMem (
+			XHCI_DEVICE_CONTEXT_SIZE (pXHCIDevice->GetContextSize ()));	// (Onyx)
 
 	// must not clear EP0, because it has already been set from CUSBDevice::CUSBDevice()
 	for (unsigned i = 1; i < XHCI_MAX_ENDPOINTS; i++)
@@ -57,7 +58,8 @@ CXHCIUSBDevice::CXHCIUSBDevice (CXHCIDevice *pXHCIDevice, TUSBSpeed Speed,
 	m_pInputContextBuffer (0)
 {
 	m_pDeviceContext =
-		(TXHCIDeviceContext *) pXHCIDevice->AllocateSharedMem (sizeof (TXHCIDeviceContext));
+		(TXHCIDeviceContext *) pXHCIDevice->AllocateSharedMem (
+			XHCI_DEVICE_CONTEXT_SIZE (pXHCIDevice->GetContextSize ()));	// (Onyx)
 
 	// must not clear EP0, because it has already been set from CUSBDevice::CUSBDevice()
 	for (unsigned i = 1; i < XHCI_MAX_ENDPOINTS; i++)
@@ -194,8 +196,7 @@ void CXHCIUSBDevice::TransferEvent (u8 uchCompletionCode, u32 nTransferLength, u
 
 void CXHCIUSBDevice::DumpStatus (void)
 {
-	debug_hexdump (m_pDeviceContext,   sizeof (TXHCISlotContext)
-					 + 7*sizeof (TXHCIEndpointContext), From);
+	debug_hexdump (m_pDeviceContext, 8 * m_pXHCIDevice->GetContextSize (), From);	// (Onyx)
 
 	for (unsigned i = 0; i < XHCI_MAX_ENDPOINTS; i++)
 	{
@@ -210,39 +211,43 @@ void CXHCIUSBDevice::DumpStatus (void)
 
 TXHCIInputContext *CXHCIUSBDevice::GetInputContextAddressDevice (void)
 {
+	const unsigned nStride = m_pXHCIDevice->GetContextSize ();	// (Onyx) the controller's
+	const size_t nSize = XHCI_INPUT_CONTEXT_SIZE (nStride);
+
 	assert (m_pInputContextBuffer == 0);
-	m_pInputContextBuffer = new u8[sizeof (TXHCIInputContext) + XHCI_PAGE_SIZE-1];
+	m_pInputContextBuffer = new u8[nSize + XHCI_PAGE_SIZE-1];
 	assert (m_pInputContextBuffer != 0);
 
 	TXHCIInputContext *pInputContext =
 		(TXHCIInputContext *) XHCI_ALIGN_PTR (m_pInputContextBuffer, XHCI_PAGE_SIZE);
 
-	memset (pInputContext, 0, sizeof *pInputContext);
+	memset (pInputContext, 0, nSize);
 
 	// set input control context
-	pInputContext->Control.AddContextFlags = 3;	// set A0 and A1
+	XHCI_INPUT_CONTROL (pInputContext)->AddContextFlags = 3;	// set A0 and A1
 
 	// set slot context
-	pInputContext->Device.Slot.RootHubPortNumber = GetRootHubPortID ();
-	pInputContext->Device.Slot.RouteString = GetRouteString ();
-	pInputContext->Device.Slot.Speed = XHCI_USB_SPEED_TO_PSI (GetSpeed ());
-	pInputContext->Device.Slot.ContextEntries = 1;
+	TXHCISlotContext *pSlotContext = XHCI_INPUT_SLOT (pInputContext, nStride);
+	pSlotContext->RootHubPortNumber = GetRootHubPortID ();
+	pSlotContext->RouteString = GetRouteString ();
+	pSlotContext->Speed = XHCI_USB_SPEED_TO_PSI (GetSpeed ());
+	pSlotContext->ContextEntries = 1;
 
 	if (IsSplit ())
 	{
-		pInputContext->Device.Slot.TTHubSlotID = GetHubAddress ();
-		pInputContext->Device.Slot.TTPortNumber = GetHubPortNumber ();
+		pSlotContext->TTHubSlotID = GetHubAddress ();
+		pSlotContext->TTPortNumber = GetHubPortNumber ();
 
 		CUSBDevice *pTTHubDevice = GetTTHubDevice ();
 		assert (pTTHubDevice != 0);
 		const TUSBHubInfo *pTTHubInfo = pTTHubDevice->GetHubInfo ();
 		assert (pTTHubInfo != 0);
 
-		pInputContext->Device.Slot.MTT = pTTHubInfo->HasMultipleTTs ? 1 : 0;
+		pSlotContext->MTT = pTTHubInfo->HasMultipleTTs ? 1 : 0;
 	}
 
 	// set EP0 context
-	TXHCIEndpointContext *pEP0Context = &pInputContext->Device.Endpoint[0];
+	TXHCIEndpointContext *pEP0Context = XHCI_INPUT_ENDPOINT (pInputContext, nStride, 0);
 
 	assert (m_pEndpoint[0] != 0);
 	CXHCIRing *pTransferRing = m_pEndpoint[0]->GetTransferRing ();
@@ -278,42 +283,48 @@ TXHCIInputContext *CXHCIUSBDevice::GetInputContextAddressDevice (void)
 		break;
 	}
 
-	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, sizeof *pInputContext);
+	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, nSize);
 
 	return pInputContext;
 }
 
 TXHCIInputContext *CXHCIUSBDevice::GetInputContextEnableHubFunction (void)
 {
+	const unsigned nStride = m_pXHCIDevice->GetContextSize ();	// (Onyx) the controller's
+	const size_t nSize = XHCI_INPUT_CONTEXT_SIZE (nStride);
+
 	assert (m_pInputContextBuffer == 0);
-	m_pInputContextBuffer = new u8[sizeof (TXHCIInputContext) + XHCI_PAGE_SIZE-1];
+	m_pInputContextBuffer = new u8[nSize + XHCI_PAGE_SIZE-1];
 	assert (m_pInputContextBuffer != 0);
 
 	TXHCIInputContext *pInputContext =
 		(TXHCIInputContext *) XHCI_ALIGN_PTR (m_pInputContextBuffer, XHCI_PAGE_SIZE);
 
 	assert (m_pDeviceContext != 0);
-	memset (&pInputContext->Control, 0, sizeof pInputContext->Control);
-	memcpy (&pInputContext->Device, m_pDeviceContext, sizeof pInputContext->Device);
+	memset (pInputContext, 0, nStride);
+	memcpy (XHCI_INPUT_DEVICE (pInputContext, nStride), m_pDeviceContext,
+		XHCI_DEVICE_CONTEXT_SIZE (nStride));
 
 	// set input control context
-	pInputContext->Control.AddContextFlags = 1;	// set A0
-	pInputContext->Control.DropContextFlags = 1;	// set D0
+	XHCI_INPUT_CONTROL (pInputContext)->AddContextFlags = 1;	// set A0
+	XHCI_INPUT_CONTROL (pInputContext)->DropContextFlags = 1;	// set D0
+
+	TXHCISlotContext *pSlotContext = XHCI_INPUT_SLOT (pInputContext, nStride);
 
 	// set slot context
 	const TUSBHubInfo *pHubInfo = GetHubInfo ();
 	assert (pHubInfo != 0);
 
-	pInputContext->Device.Slot.Hub = 1;
-	pInputContext->Device.Slot.NumberOfPorts = pHubInfo->NumberOfPorts;
+	pSlotContext->Hub = 1;
+	pSlotContext->NumberOfPorts = pHubInfo->NumberOfPorts;
 
 	if (GetSpeed () == USBSpeedHigh)
 	{
-		pInputContext->Device.Slot.MTT = pHubInfo->HasMultipleTTs ? 1 : 0;
-		pInputContext->Device.Slot.TTT = pHubInfo->TTThinkTime;
+		pSlotContext->MTT = pHubInfo->HasMultipleTTs ? 1 : 0;
+		pSlotContext->TTT = pHubInfo->TTThinkTime;
 	}
 
-	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, sizeof *pInputContext);
+	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, nSize);
 
 	return pInputContext;
 }
