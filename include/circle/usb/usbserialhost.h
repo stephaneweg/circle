@@ -55,6 +55,11 @@ private:
 						 void *pParam);
 
 protected:
+	// (Onyx) called once, at the first Read () or Write () (task level): a CDC device raises
+	// DTR there, as Linux does when its tty is opened -- not when it is configured
+	virtual void FirstUse (void)	{}
+
+protected:
 	unsigned m_nBaudRate;
 	TUSBSerialDataBits m_nDataBits;
 	TUSBSerialParity m_nParity;
@@ -64,6 +69,8 @@ private:
 	CUSBSerialDevice *m_pInterface;
 
 	size_t m_nReadHeaderBytes;
+
+	boolean m_bUsed;		// (Onyx) FirstUse () called
 
 	CUSBEndpoint *m_pEndpointIn;
 	CUSBEndpoint *m_pEndpointOut;

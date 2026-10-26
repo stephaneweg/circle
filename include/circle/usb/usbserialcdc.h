@@ -38,6 +38,8 @@ public:
 private:
 	boolean SetLineCoding (void);
 
+	void FirstUse (void) override;		// (Onyx) DTR and RTS raised
+
 private:
 	u8 m_ucCommunicationsInterfaceNumber;
 	boolean m_bInterfaceOK;

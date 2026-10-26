@@ -35,6 +35,7 @@ CUSBSerialHostDevice::CUSBSerialHostDevice (CUSBFunction *pFunction, size_t nRea
 	m_nStopBits (USBSerialStopBits1),
 	m_pInterface (0),
 	m_nReadHeaderBytes (nReadHeaderBytes),
+	m_bUsed (FALSE),
 	m_pEndpointIn (0),
 	m_pEndpointOut (0),
 	m_pBufferIn (0),
@@ -130,6 +131,12 @@ int CUSBSerialHostDevice::Write (const void *pBuffer, size_t nCount)
 	assert (pBuffer != 0);
 	assert (nCount > 0);
 
+	if (!m_bUsed)			// (Onyx)
+	{
+		m_bUsed = TRUE;
+		FirstUse ();
+	}
+
 #ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	// USB host controller does not allow concurrent split transactions
 	// to same device. Thus wait for completion of pending IN request.
@@ -163,6 +170,12 @@ int CUSBSerialHostDevice::Read (void *pBuffer, size_t nCount)
 {
 	assert (pBuffer != 0);
 	assert (nCount > 0);
+
+	if (!m_bUsed)			// (Onyx)
+	{
+		m_bUsed = TRUE;
+		FirstUse ();
+	}
 
 	DataMemBarrier ();
 

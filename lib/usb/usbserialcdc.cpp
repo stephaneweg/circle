@@ -76,6 +76,16 @@ boolean CUSBSerialCDCDevice::Configure (void)
 		return FALSE;
 	}
 
+	// (Onyx) DTR and RTS are raised at the first Read () or Write () (FirstUse ()), as Linux
+	// does when the tty is opened: a device seeing DTR thinks a terminal reads it -- the
+	// Waveshare PocketTerm35's RP2040 then blocks, its keyboard silent, until its watchdog
+	// restarts it -- and nothing reads a port no program uses.
+
+	return TRUE;
+}
+
+void CUSBSerialCDCDevice::FirstUse (void)
+{
 	// enable DTR and RTS
 	if (GetHost ()->ControlMessage (GetEndpoint0 (),
 					REQUEST_OUT | REQUEST_CLASS | REQUEST_TO_INTERFACE,
@@ -83,11 +93,7 @@ boolean CUSBSerialCDCDevice::Configure (void)
 					0, 0) < 0)
 	{
 		CLogger::Get ()->Write (From, LogError, "Cannot set control line state");
-
-		return FALSE;
 	}
-
-	return TRUE;
 }
 
 boolean CUSBSerialCDCDevice::SetBaudRate (unsigned nBaudRate)
