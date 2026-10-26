@@ -553,6 +553,31 @@ boolean CDWHCIDevice::InitCore (void)
 	USBConfig.And (~DWHCI_CORE_USB_CFG_SRP_CAPABLE);
 	USBConfig.Write ();
 
+#if RASPPI >= 4
+	// (Onyx) the Pi 4's DWC OTG controller is the USB-C socket's, which says nothing of a host:
+	// the host mode forced (Linux's "dtoverlay=dwc2,dr_mode=host"), then waited for
+	USBConfig.Read ();
+	USBConfig.And (~DWHCI_CORE_USB_CFG_FORCE_DEV_MODE);
+	USBConfig.Or (DWHCI_CORE_USB_CFG_FORCE_HOST_MODE);
+	USBConfig.Write ();
+
+	CDWHCIRegister IntStatus (DWHCI_CORE_INT_STAT);
+	unsigned nWaitMs;
+	for (nWaitMs = 0; nWaitMs < 200; nWaitMs += 10)
+	{
+		m_pTimer->MsDelay (10);
+		if (IntStatus.Read () & DWHCI_CORE_INT_STAT_CUR_MODE_HOST)
+		{
+			break;
+		}
+	}
+	if (nWaitMs >= 200)
+	{
+		LOGERR ("Not in host mode");
+		return FALSE;
+	}
+#endif
+
 	EnableCommonInterrupts ();
 
 	return TRUE;

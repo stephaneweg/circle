@@ -26,6 +26,7 @@
 #include <circle/numberpool.h>
 #include <circle/logger.h>
 #include <circle/string.h>
+#include <circle/sysconfig.h>
 #include <circle/types.h>
 
 #define USBDEV_MAX_FUNCTIONS	10
@@ -83,7 +84,11 @@ public:
 	void LogWrite (TLogSeverity Severity, const char *pMessage, ...);
 
 #if RASPPI >= 4
+#ifdef USB_HCI_DWHCI
+	virtual boolean EnableHubFunction (void)	{ return TRUE; }	// (Onyx) a DWHCI device's
+#else
 	virtual boolean EnableHubFunction (void) = 0;
+#endif
 
 	unsigned GetRootHubPortID (void) const		{ return m_nRootHubPortID; }
 	u32 GetRouteString (void) const			{ return m_nRouteString; }
@@ -130,7 +135,7 @@ private:
 	u32	 m_nRouteString;
 #endif
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	static CNumberPool s_DeviceAddressPool;
 #endif
 };

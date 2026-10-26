@@ -372,11 +372,18 @@ boolean CUSBStandardHub::EnumeratePorts (void)
 		}
 
 		assert (m_pDevice[nPort] == 0);
-#if RASPPI <= 3
-		m_pDevice[nPort] = new CUSBDevice (pHost, Speed, this, nPort);
-#else
-		m_pDevice[nPort] = new CXHCIUSBDevice ((CXHCIDevice *) pHost, Speed, this, nPort);
+#ifdef USB_HCI_XHCI		// (Onyx) the host's kind, not the board
+		if (USB_HOST_IS_XHCI (pHost))
+		{
+			m_pDevice[nPort] = new CXHCIUSBDevice ((CXHCIDevice *) pHost, Speed, this, nPort);
+		}
+		else
 #endif
+		{
+#ifdef USB_HCI_DWHCI
+			m_pDevice[nPort] = new CUSBDevice (pHost, Speed, this, nPort);
+#endif
+		}
 		assert (m_pDevice[nPort] != 0);
 
 		if (!m_pDevice[nPort]->Initialize ())

@@ -18,6 +18,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 #include <circle/usb/usbendpoint.h>
+#include <circle/usb/usbhostcontroller.h>
 #include <circle/sysconfig.h>
 #include <circle/logger.h>
 #include <assert.h>
@@ -28,24 +29,33 @@ CUSBEndpoint::CUSBEndpoint (CUSBDevice *pDevice)
 	m_Type (EndpointTypeControl),
 	m_bDirectionIn (FALSE),
 	m_nMaxPacketSize (USB_DEFAULT_MAX_PACKET_SIZE)
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	, m_nInterval (1),
 	m_NextPID (USBPIDSetup)
+#endif
+#ifdef USB_HCI_XHCI
+	, m_pXHCIEndpoint (0)
 #endif
 {
 	assert (m_pDevice != 0);
 
-#if RASPPI >= 4
-	m_pXHCIEndpoint = new CXHCIEndpoint ((CXHCIUSBDevice *) m_pDevice,
-					     (CXHCIDevice *) m_pDevice->GetHost ());
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4: an xHCI device's only
+	if (USB_HOST_IS_XHCI (m_pDevice->GetHost ()))
+	{
+		m_pXHCIEndpoint = new CXHCIEndpoint ((CXHCIUSBDevice *) m_pDevice,
+						     (CXHCIDevice *) m_pDevice->GetHost ());
+	}
 #endif
 }
 
 CUSBEndpoint::CUSBEndpoint (CUSBDevice *pDevice, const TUSBEndpointDescriptor *pDesc)
 :	m_pDevice (pDevice)
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	, m_nInterval (1),
 	m_NextPID (USBPIDData0)
+#endif
+#ifdef USB_HCI_XHCI
+	, m_pXHCIEndpoint (0)
 #endif
 {
 	assert (m_pDevice != 0);
@@ -77,7 +87,7 @@ CUSBEndpoint::CUSBEndpoint (CUSBDevice *pDevice, const TUSBEndpointDescriptor *p
 	m_bDirectionIn   = pDesc->bEndpointAddress & 0x80 ? TRUE : FALSE;
 	m_nMaxPacketSize = pDesc->wMaxPacketSize & 0x7FF;
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3 (unused on an xHCI device)
 	if (   m_Type == EndpointTypeInterrupt
 	    || m_Type == EndpointTypeIsochronous)
 	{
@@ -133,7 +143,7 @@ CUSBEndpoint::CUSBEndpoint (CUSBDevice *pDevice, const TUSBEndpointDescriptor *p
 			m_nMaxPacketSize = 8;
 		}
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 #ifdef USE_USB_SOF_INTR
 		m_nInterval = 1;
 #else
@@ -142,15 +152,18 @@ CUSBEndpoint::CUSBEndpoint (CUSBDevice *pDevice, const TUSBEndpointDescriptor *p
 #endif
 	}
 
-#if RASPPI >= 4
-	m_pXHCIEndpoint = new CXHCIEndpoint ((CXHCIUSBDevice *) m_pDevice, pDesc,
-					     (CXHCIDevice *) m_pDevice->GetHost ());
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4: an xHCI device's only
+	if (USB_HOST_IS_XHCI (m_pDevice->GetHost ()))
+	{
+		m_pXHCIEndpoint = new CXHCIEndpoint ((CXHCIUSBDevice *) m_pDevice, pDesc,
+						     (CXHCIDevice *) m_pDevice->GetHost ());
+	}
 #endif
 }
 
 CUSBEndpoint::~CUSBEndpoint (void)
 {
-#if RASPPI >= 4
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4
 	delete m_pXHCIEndpoint;
 	m_pXHCIEndpoint = 0;
 #endif
@@ -183,12 +196,15 @@ boolean CUSBEndpoint::SetMaxPacketSize (u32 nMaxPacketSize)
 {
 	m_nMaxPacketSize = nMaxPacketSize;
 
-#if RASPPI >= 4
-	assert (m_pXHCIEndpoint != 0);
-	return m_pXHCIEndpoint->SetMaxPacketSize (nMaxPacketSize);
-#else
-	return TRUE;
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4: an xHCI device's only
+	if (USB_HOST_IS_XHCI (m_pDevice->GetHost ()))
+	{
+		assert (m_pXHCIEndpoint != 0);
+		return m_pXHCIEndpoint->SetMaxPacketSize (nMaxPacketSize);
+	}
 #endif
+
+	return TRUE;
 }
 
 u32 CUSBEndpoint::GetMaxPacketSize (void) const
@@ -196,7 +212,7 @@ u32 CUSBEndpoint::GetMaxPacketSize (void) const
 	return m_nMaxPacketSize;
 }
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 
 unsigned CUSBEndpoint::GetInterval (void) const
 {
@@ -265,12 +281,18 @@ void CUSBEndpoint::SkipPID (unsigned nPackets, boolean bStatusStage)
 
 void CUSBEndpoint::ResetPID (void)
 {
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3: the host's kind, not the board
+	if (!USB_HOST_IS_XHCI (m_pDevice->GetHost ()))
+	{
 	assert (   m_Type == EndpointTypeControl
 		|| m_Type == EndpointTypeBulk);
 
 	m_NextPID = m_Type == EndpointTypeControl ? USBPIDSetup : USBPIDData0;
-#else
+
+	return;
+	}
+#endif
+#ifdef USB_HCI_XHCI
 	assert (   m_Type == EndpointTypeControl
 		|| m_Type == EndpointTypeBulk);
 
@@ -281,7 +303,7 @@ void CUSBEndpoint::ResetPID (void)
 #endif
 }
 
-#if RASPPI >= 4
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4
 
 CXHCIEndpoint *CUSBEndpoint::GetXHCIEndpoint (void)
 {

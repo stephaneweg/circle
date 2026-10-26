@@ -72,11 +72,9 @@ boolean CUSBString::GetFromDescriptor (u8 ucID, u16 usLanguageID)
 	assert (ucID > 0);
 
 	delete [] m_pUSBString;
-#if RASPPI >= 4
-	const unsigned nRequestLength = USBSTR_MAX_LENGTH;
-#else
-	const unsigned nRequestLength = USBSTR_MIN_LENGTH;
-#endif
+	assert (m_pDevice != 0);
+	const boolean bXHCI = USB_HOST_IS_XHCI (m_pDevice->GetHost ());	// (Onyx) was RASPPI >= 4
+	const unsigned nRequestLength = bXHCI ? USBSTR_MAX_LENGTH : USBSTR_MIN_LENGTH;
 	m_pUSBString = (TUSBStringDescriptor *) new u8[nRequestLength];
 	assert (m_pUSBString != 0);
 
@@ -91,12 +89,11 @@ boolean CUSBString::GetFromDescriptor (u8 ucID, u16 usLanguageID)
 	}
 
 	u8 ucLength = m_pUSBString->bLength;
-#if RASPPI >= 4
-	if ((unsigned) nResult < ucLength)
+	if (   bXHCI
+	    && (unsigned) nResult < ucLength)
 	{
 		return FALSE;
 	}
-#endif
 	if (   ucLength < 2
 	    || (ucLength & 1) != 0
 	    || m_pUSBString->bDescriptorType != DESCRIPTOR_STRING)
@@ -162,11 +159,9 @@ const char *CUSBString::Get (void) const
 
 u16 CUSBString::GetLanguageID (void)
 {
-#if RASPPI >= 4
-	const unsigned nRequestLength = USBSTR_MAX_LENGTH;
-#else
-	const unsigned nRequestLength = USBSTR_MIN_LENGTH;
-#endif
+	assert (m_pDevice != 0);
+	const boolean bXHCI = USB_HOST_IS_XHCI (m_pDevice->GetHost ());	// (Onyx) was RASPPI >= 4
+	const unsigned nRequestLength = bXHCI ? USBSTR_MAX_LENGTH : USBSTR_MIN_LENGTH;
 	TUSBStringDescriptor *pLanguageIDs = (TUSBStringDescriptor *) new u8[nRequestLength];
 	assert (pLanguageIDs != 0);
 
@@ -182,14 +177,13 @@ u16 CUSBString::GetLanguageID (void)
 	}
 
 	u8 ucLength = pLanguageIDs->bLength;
-#if RASPPI >= 4
-	if ((unsigned) nResult < ucLength)
+	if (   bXHCI
+	    && (unsigned) nResult < ucLength)
 	{
 		delete [] pLanguageIDs;
 
 		return USBSTR_DEFAULT_LANGID;
 	}
-#endif
 	if (   ucLength < 4
 	    || (ucLength & 1) != 0
 	    || pLanguageIDs->bDescriptorType != DESCRIPTOR_STRING)

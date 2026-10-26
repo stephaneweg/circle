@@ -33,17 +33,20 @@ OBJS	= lan7800.o smsc951x.o usbbluetooth.o usbcdcethernet.o usbfloppydevice.o \
 	  usbstandardhub.o usbstring.o usbserial.o usbserialhost.o usbserialch341.o usbserialcp210x.o \
 	  usbserialpl2303.o usbserialft231x.o usbserialcdc.o usbtouchscreen.o dwhciregister.o
 
-ifneq ($(filter 1 2 3,$(RASPPI)),)
+# (Onyx) the Raspberry Pi 4 too: its DWC OTG controller as a host (the USB-C socket), beside the xHCI
+ifneq ($(filter 1 2 3 4,$(RASPPI)),)
 OBJS	+= dwhcidevice.o dwhciframeschednper.o dwhciframeschednsplit.o dwhciframeschedper.o \
 	   dwhcirootport.o dwhcixactqueue.o dwhcicompletionqueue.o \
 	   dwhcixferstagedata.o dwhciframeschediso.o
-else
+endif
+ifneq ($(filter 4 5,$(RASPPI)),)
 OBJS	+= xhcicommandmanager.o xhcidevice.o xhciendpoint.o xhcieventmanager.o xhcimmiospace.o \
 	   xhciring.o xhciroothub.o xhcirootport.o xhcisharedmemallocator.o xhcislotmanager.o \
 	   xhciusbdevice.o usbaudiocontrol.o usbaudiostreaming.o usbaudiofunctopology.o
 endif
 
-ifeq ($(strip $(RASPPI)),5)
+# (Onyx) the Pi 4 too
+ifneq ($(filter 4 5,$(strip $(RASPPI))),)
 OBJS	+= usbsubsystem.o
 endif
 

@@ -194,6 +194,22 @@
 
 #endif
 
+// (Onyx) The USB host controllers the USB library is built for: USB_HCI_DWHCI (the DWC OTG
+// controller), USB_HCI_XHCI, or both. The Raspberry Pi 4 has both: the xHCI (the VL805, the
+// USB-A sockets) and its DWC OTG controller as a host too (the USB-C socket, where the Waveshare
+// PocketTerm35's keyboard is; Linux's "dtoverlay=dwc2,dr_mode=host"), started on request
+// (CUSBSubSystem::EnableDWHCI ()). Then the library asks each device's host which one it is
+// (USB_HOST_IS_XHCI ()).
+
+#if RASPPI <= 3
+#define USB_HCI_DWHCI
+#elif RASPPI == 4 && !defined (USE_XHCI_INTERNAL)
+#define USB_HCI_DWHCI
+#define USB_HCI_XHCI
+#else
+#define USB_HCI_XHCI
+#endif
+
 #if RASPPI >= 5
 
 // The left PWM audio output pin is by default GPIO12. The following

@@ -34,7 +34,7 @@
 
 static const char FromDevice[] = "usbdev";
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 CNumberPool CUSBDevice::s_DeviceAddressPool (USB_FIRST_DEDICATED_ADDRESS, USB_MAX_ADDRESS);
 #endif
 
@@ -143,8 +143,9 @@ CUSBDevice::~CUSBDevice (void)
 		delete pNames;
 	}
 
-#if RASPPI <= 3
-	if (m_ucAddress != USB_DEFAULT_ADDRESS)
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3; an xHCI device's address is its slot
+	if (   !USB_HOST_IS_XHCI (m_pHost)
+	    && m_ucAddress != USB_DEFAULT_ADDRESS)
 	{
 		s_DeviceAddressPool.FreeNumber (m_ucAddress);
 	}
@@ -236,7 +237,9 @@ boolean CUSBDevice::Initialize (void)
 	//debug_hexdump (m_pDeviceDesc, sizeof *m_pDeviceDesc, FromDevice);
 #endif
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
+	if (!USB_HOST_IS_XHCI (m_pHost))
+	{
 	unsigned nAddress = s_DeviceAddressPool.AllocateNumber (FALSE);
 	if (nAddress == CNumberPool::Invalid)
 	{
@@ -255,6 +258,7 @@ boolean CUSBDevice::Initialize (void)
 	}
 	
 	SetAddress ((u8) nAddress);
+	}
 #endif
 
 	assert (m_pConfigDesc == 0);
@@ -628,11 +632,16 @@ CString *CUSBDevice::GetNames (void) const
 
 void CUSBDevice::SetAddress (u8 ucAddress)
 {
-#if RASPPI <= 3
-	assert (ucAddress <= USB_MAX_ADDRESS);
-#else
-	assert (XHCI_IS_SLOTID (ucAddress));
+#ifdef USB_HCI_XHCI		// (Onyx) the host's kind, not the board
+	if (USB_HOST_IS_XHCI (m_pHost))
+	{
+		assert (XHCI_IS_SLOTID (ucAddress));
+	}
+	else
 #endif
+	{
+		assert (ucAddress <= USB_MAX_ADDRESS);
+	}
 	m_ucAddress = ucAddress;
 
 	//LogWrite (LogDebug, "Device address set to %u", (unsigned) m_ucAddress);

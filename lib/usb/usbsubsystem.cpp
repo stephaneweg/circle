@@ -30,7 +30,14 @@ CUSBSubSystem *CUSBSubSystem::s_pThis = nullptr;
 CUSBSubSystem::CUSBSubSystem (CInterruptSystem *pInterruptSystem, CTimer *pTimer,
 			      boolean bPlugAndPlay)
 :	m_bPlugAndPlay (bPlugAndPlay),
+#if RASPPI >= 5
 	m_Southbridge (pInterruptSystem),
+#else
+	m_pInterruptSystem (pInterruptSystem),
+	m_pTimer (pTimer),
+	m_bEnableDWHCI (FALSE),
+	m_pDWHCIDevice (nullptr),
+#endif
 	m_SharedMemAllocator (
 		CMemorySystem::GetCoherentPage (COHERENT_SLOT_XHCI_START),
 		CMemorySystem::GetCoherentPage (COHERENT_SLOT_XHCI_END) + PAGE_SIZE - 1)
@@ -48,6 +55,11 @@ CUSBSubSystem::CUSBSubSystem (CInterruptSystem *pInterruptSystem, CTimer *pTimer
 
 CUSBSubSystem::~CUSBSubSystem (void)
 {
+#if RASPPI == 4
+	delete m_pDWHCIDevice;
+	m_pDWHCIDevice = nullptr;
+#endif
+
 	for (int i = NumDevices-1; i >= 0; i--)
 	{
 		delete m_pXHCIDevice[i];
@@ -57,14 +69,25 @@ CUSBSubSystem::~CUSBSubSystem (void)
 	s_pThis = nullptr;
 }
 
+#if RASPPI == 4
+
+void CUSBSubSystem::EnableDWHCI (void)
+{
+	m_bEnableDWHCI = TRUE;
+}
+
+#endif
+
 boolean CUSBSubSystem::Initialize (boolean bScanDevices)
 {
+#if RASPPI >= 5
 	if (!m_Southbridge.Initialize ())
 	{
 		LOGERR ("Cannot initialize RP1 device");
 
 		return FALSE;
 	}
+#endif
 
 	for (unsigned i = 0; i < NumDevices; i++)
 	{
@@ -76,6 +99,27 @@ boolean CUSBSubSystem::Initialize (boolean bScanDevices)
 			return FALSE;
 		}
 	}
+
+#if RASPPI == 4
+	// (Onyx) the DWC OTG controller, the USB-C socket's, after the VL805: an extra, its failure
+	// leaves the USB-A sockets working (the object is kept: its IRQ may be connected)
+	if (m_bEnableDWHCI)
+	{
+		CDWHCIDevice *pDWHCIDevice = new CDWHCIDevice (m_pInterruptSystem, m_pTimer,
+							       m_bPlugAndPlay);
+		assert (pDWHCIDevice);
+		if (pDWHCIDevice->Initialize (bScanDevices))
+		{
+			LOGNOTE ("USB-C socket: DWC OTG host running");
+
+			m_pDWHCIDevice = pDWHCIDevice;
+		}
+		else
+		{
+			LOGWARN ("Cannot initialize the DWC OTG host (USB-C socket)");
+		}
+	}
+#endif
 
 #if !defined (NDEBUG) && defined (XHCI_DEBUG2)
 	DumpStatus ();
@@ -97,6 +141,14 @@ boolean CUSBSubSystem::UpdatePlugAndPlay (void)
 			bResult = TRUE;
 		}
 	}
+
+#if RASPPI == 4
+	if (   m_pDWHCIDevice
+	    && m_pDWHCIDevice->UpdatePlugAndPlay ())
+	{
+		bResult = TRUE;
+	}
+#endif
 
 	return bResult;
 }
@@ -146,7 +198,9 @@ void CUSBSubSystem::DumpStatus (void)
 		}
 	}
 
+#if RASPPI >= 5
 	m_Southbridge.DumpStatus ();
+#endif
 
 	LOGDBG ("%u KB shared memory free",
 		(unsigned) (m_SharedMemAllocator.GetFreeSpace () / 1024));

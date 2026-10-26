@@ -39,6 +39,10 @@ public:
 
 	void HandlePortStatusChange (void);
 
+#if RASPPI >= 4
+	u8 GetPortID (void) const	{ return 1; }	// (Onyx) the DWC OTG controller's one port
+#endif
+
 private:
 	CDWHCIDevice *m_pHost;
 

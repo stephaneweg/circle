@@ -288,8 +288,9 @@ boolean CUSBAudioStreamingDevice::Configure (void)
 
 	m_bIsOutput = (pEndpointDesc->bEndpointAddress & 0x80) == 0x00;
 
-#if RASPPI <= 3
-	if (!m_bIsOutput)
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
+	if (   !m_bIsOutput
+	    && !USB_HOST_IS_XHCI (GetHost ()))
 	{
 		LOGWARN ("USB audio input is not supported");
 

@@ -468,8 +468,9 @@ int CUSBFloppyDiskDevice::WaitUnitReady (void)
 			return 0;
 		}
 
-#if RASPPI >= 4
-		if (!GetEndpoint0 ()->GetXHCIEndpoint ()->ResetFromHalted ())
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4
+		if (   USB_HOST_IS_XHCI (GetHost ())
+		    && !GetEndpoint0 ()->GetXHCIEndpoint ()->ResetFromHalted ())
 		{
 			LOGERR ("Endpoint reset failed");
 

@@ -47,6 +47,8 @@ public:
 
 	void ReScanDevices (void);
 
+	boolean IsXHCI (void) const override	{ return TRUE; }	// (Onyx)
+
 	boolean SubmitBlockingRequest (CUSBRequest *pURB, unsigned nTimeoutMs = USB_TIMEOUT_NONE);
 	boolean SubmitAsyncRequest (CUSBRequest *pURB, unsigned nTimeoutMs = USB_TIMEOUT_NONE);
 

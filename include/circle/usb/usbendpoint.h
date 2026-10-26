@@ -23,6 +23,7 @@
 #include <circle/usb/usb.h>
 #include <circle/usb/usbdevice.h>
 #include <circle/usb/xhciendpoint.h>
+#include <circle/sysconfig.h>
 #include <circle/types.h>
 
 enum TEndpointType
@@ -49,7 +50,7 @@ public:
 	boolean SetMaxPacketSize (u32 nMaxPacketSize);
 	u32 GetMaxPacketSize (void) const;
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	unsigned GetInterval (void) const;		// Milliseconds
 
 	TUSBPID GetNextPID (boolean bStatusStage);
@@ -57,7 +58,7 @@ public:
 #endif
 	void ResetPID (void);
 
-#if RASPPI >= 4
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4
 	CXHCIEndpoint *GetXHCIEndpoint (void);
 #endif
 
@@ -67,12 +68,12 @@ private:
 	TEndpointType	 m_Type;
 	boolean		 m_bDirectionIn;
 	u32		 m_nMaxPacketSize;
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	unsigned	 m_nInterval;			// Milliseconds
 	TUSBPID		 m_NextPID;
 #endif
 
-#if RASPPI >= 4
+#ifdef USB_HCI_XHCI		// (Onyx) was RASPPI >= 4; 0 on a DWHCI device
 	CXHCIEndpoint	*m_pXHCIEndpoint;
 #endif
 };

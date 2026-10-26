@@ -71,6 +71,10 @@ public:
 
 	virtual void CancelDeviceTransactions (CUSBDevice *pUSBDevice) {}
 
+	// (Onyx) TRUE on an xHCI controller: with USB_HCI_DWHCI and USB_HCI_XHCI both built (the
+	// Raspberry Pi 4) the library asks a device's host which one it is (USB_HOST_IS_XHCI ())
+	virtual boolean IsXHCI (void) const	{ return FALSE; }
+
 public:
 	boolean IsPlugAndPlay (void) const;
 
@@ -106,5 +110,13 @@ private:
 	static CUSBHostController *s_pThis;
 #endif
 };
+
+#if defined (USB_HCI_DWHCI) && defined (USB_HCI_XHCI)
+	#define USB_HOST_IS_XHCI(host)	((host)->IsXHCI ())
+#elif defined (USB_HCI_XHCI)
+	#define USB_HOST_IS_XHCI(host)	TRUE
+#else
+	#define USB_HOST_IS_XHCI(host)	FALSE
+#endif
 
 #endif

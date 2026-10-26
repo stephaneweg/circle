@@ -130,14 +130,17 @@ int CUSBSerialHostDevice::Write (const void *pBuffer, size_t nCount)
 	assert (pBuffer != 0);
 	assert (nCount > 0);
 
-#if RASPPI <= 3
+#ifdef USB_HCI_DWHCI		// (Onyx) was RASPPI <= 3
 	// USB host controller does not allow concurrent split transactions
 	// to same device. Thus wait for completion of pending IN request.
+	if (!USB_HOST_IS_XHCI (GetHost ()))
+	{
 	do
 	{
 		DataMemBarrier ();
 	}
 	while (m_bInRequestActive);
+	}
 #endif
 
 	CUSBHostController *pHost = GetHost ();
