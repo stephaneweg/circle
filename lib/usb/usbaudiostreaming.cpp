@@ -653,8 +653,8 @@ boolean CUSBAudioStreamingDevice::Setup (unsigned nSampleRate)
 	unsigned i;
 	for (i = 0; i < m_DeviceInfo.SampleRateRanges; i++)
 	{
-		if (   m_DeviceInfo.SampleRateRange[i].Min >= nSampleRate
-		    && m_DeviceInfo.SampleRateRange[i].Max <= nSampleRate)
+		if (   m_DeviceInfo.SampleRateRange[i].Min <= nSampleRate	// (Onyx: a continuous range is accepted;
+		    && m_DeviceInfo.SampleRateRange[i].Max >= nSampleRate)	// upstream had Min >= f && Max <= f)
 		{
 			break;
 		}
