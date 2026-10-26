@@ -306,7 +306,11 @@ CUSBFunction *CUSBDeviceFactory::GetGenericHIDDevice (CUSBFunction *pParent)
 	// If we find a Usage Page (Digitizer) item, use the touch screen driver.
 	// Same idea for a Usage Page (Generic Desktop) + Usage (Mouse) pair: try
 	// CUSBMouseDevice before falling back to the gamepad driver.
+	// (Onyx) A Usage (Keyboard) there first: the keyboard driver, which reads the report
+	// descriptor (a composite interface, keyboard + mouse: the PocketTerm35's RP2040).
 	boolean bSawGenericDesktopPage = FALSE;
+	boolean bSawKeyboard = FALSE;
+	boolean bSawMouse = FALSE;
 	const u8 *pDesc = ReportDescriptor;
 	for (u16 nDescSize = usReportDescriptorLength; nDescSize;)
 	{
@@ -349,19 +353,36 @@ CUSBFunction *CUSBDeviceFactory::GetGenericHIDDevice (CUSBFunction *pParent)
 			return new CUSBTouchScreenDevice (pParent);
 		}
 
-#ifndef EXCLUDE_USB_MOUSE
 		if (ucItem == 0x04)		// Usage Page
 		{
 			bSawGenericDesktopPage = (nArg == 0x01);	// Generic Desktop
 		}
 		else if (   ucItem == 0x08	// Usage
-			 && nArg == 0x02	// Mouse
 			 && bSawGenericDesktopPage)
 		{
-			return new CUSBMouseDevice (pParent);
+			if (nArg == 0x02)		// Mouse
+			{
+				bSawMouse = TRUE;
+			}
+			else if (nArg == 0x06)		// Keyboard
+			{
+				bSawKeyboard = TRUE;
+			}
 		}
-#endif
 	}
+
+#ifndef EXCLUDE_USB_KEYB
+	if (bSawKeyboard)
+	{
+		return new CUSBKeyboardDevice (pParent);
+	}
+#endif
+#ifndef EXCLUDE_USB_MOUSE
+	if (bSawMouse)
+	{
+		return new CUSBMouseDevice (pParent);
+	}
+#endif
 #endif
 
 #ifndef EXCLUDE_USB_GAMEPAD

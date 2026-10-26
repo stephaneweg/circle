@@ -74,8 +74,33 @@ protected:
 private:
 	static boolean FindByte (const u8 *pBuffer, u8 ucByte, unsigned nLength);
 
+	// (Onyx) a keyboard that is not a boot one (a composite HID interface, int3-0-0: the
+	// Waveshare PocketTerm35's RP2040): its report descriptor read, its reports turned into
+	// boot reports -- report IDs, modifiers and keys as arrays or as bitmaps (NKRO)
+	boolean ConfigureFromReportDescriptor (void);
+	boolean DecodeReportDescriptor (const u8 *pDesc, unsigned nLength);
+	boolean TranslateReport (const u8 *pReport, unsigned nReportSize, u8 *pBootReport) const;
+
 private:
 	unsigned m_nReportSize;
+
+	struct TKeyField			// (Onyx) an input field of the keyboard usage page
+	{
+		u8	ucReportID;
+		boolean	bVariable;		// a bitmap (one usage a bit), else an array of usages
+		u16	usBitOffset;		// after the report ID
+		u8	ucBitSize;
+		u8	ucCount;
+		u16	usUsageMin;
+		s32	nLogicalMin;
+	};
+	static const unsigned MaxKeyFields = 8;
+	TKeyField m_KeyFields[MaxKeyFields];
+	unsigned m_nKeyFields;
+	boolean m_bTranslateReports;		// (Onyx) TRUE: decoded from the report descriptor
+	boolean m_bReportIDs;
+	boolean m_bHasLEDs;
+	u8 m_ucLEDReportID;
 
 	CKeyboardBehaviour m_Behaviour;
 
