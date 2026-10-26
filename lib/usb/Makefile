@@ -43,8 +43,7 @@ OBJS	+= xhcicommandmanager.o xhcidevice.o xhciendpoint.o xhcieventmanager.o xhci
 	   xhciusbdevice.o usbaudiocontrol.o usbaudiostreaming.o usbaudiofunctopology.o
 endif
 
-# (Onyx) the Raspberry Pi 4 too: its two xHCI controllers (the VL805, the USB-C socket's)
-ifneq ($(filter 4 5,$(strip $(RASPPI))),)
+ifeq ($(strip $(RASPPI)),5)
 OBJS	+= usbsubsystem.o
 endif
 

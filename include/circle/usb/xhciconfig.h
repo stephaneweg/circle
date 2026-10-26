@@ -46,14 +46,8 @@
 #define XHCI_CONFIG_MAX_PORTS		1
 #define XHCI_CONTEXT_SIZE		64
 #else
-// (Onyx) both controllers at once: device #0 the VL805 (the USB-A sockets), device #1 the
-// SoC's own (the USB-C socket, config.txt otg_mode=1). The limits are the larger of the two
-// (the arrays' sizes), each controller is told its own; the structures' size is the VL805's
-// (32), the contexts' stride the controller's (CXHCIDevice::GetContextSize ()).
-#define XHCI_PI4_DUAL
-#define XHCI_SUPPORTED_VERSION		0x100	// the VL805's
-#define XHCI_SUPPORTED_VERSION_INTERNAL	0x110
-#define XHCI_CONFIG_MAX_SLOTS		64
+#define XHCI_SUPPORTED_VERSION		0x100
+#define XHCI_CONFIG_MAX_SLOTS		32
 #define XHCI_CONFIG_MAX_PORTS		5
 #define XHCI_CONTEXT_SIZE		32
 #endif

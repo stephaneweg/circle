@@ -22,15 +22,11 @@
 
 /// \class CUSBHCIDevice
 /// \brief Alias for CDWHCIDevice, CXHCIDevice or CUSBSubSystem, depending on Raspberry Pi model
-/// \note (Onyx) The Raspberry Pi 4 is a CUSBSubSystem too: the VL805 and, on request, the SoC's
-///	  own controller (the USB-C socket), both at once
-
-#include <circle/sysconfig.h>
 
 #if RASPPI <= 3
 	#include <circle/usb/dwhcidevice.h>
 	#define CUSBHCIDevice	CDWHCIDevice
-#elif RASPPI == 4 && defined (USE_XHCI_INTERNAL)
+#elif RASPPI == 4
 	#include <circle/usb/xhcidevice.h>
 	#define CUSBHCIDevice	CXHCIDevice
 #else

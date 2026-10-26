@@ -56,10 +56,6 @@ public:
 	CXHCICommandManager *GetCommandManager (void);
 	CXHCIRootHub *GetRootHub (void);
 
-	// (Onyx) the controller's own limits: its slots enabled, its contexts' stride (32 or 64 bytes)
-	unsigned GetMaxSlots (void) const	{ return m_nMaxSlots; }
-	unsigned GetContextSize (void) const	{ return m_nContextSize; }
-
 	// returned memory block has been set to zero
 	void *AllocateSharedMem (size_t nSize, size_t nAlign = 64,
 				 size_t nBoundary = XHCI_PAGE_SIZE);
@@ -80,12 +76,6 @@ private:
 	boolean m_bInterruptConnected;
 
 	unsigned m_nDevice;
-#ifdef XHCI_PI4_DUAL
-	boolean m_bInternal;		// (Onyx) device #1: the SoC's own controller, not the VL805
-	unsigned m_nIRQ;
-#endif
-	unsigned m_nMaxSlots;		// (Onyx)
-	unsigned m_nContextSize;	// (Onyx)
 
 #if RASPPI == 4 && !defined (USE_XHCI_INTERNAL)
 	CBcmPCIeHostBridge m_PCIeHostBridge;

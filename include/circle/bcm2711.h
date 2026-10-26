@@ -83,10 +83,6 @@
 #else
 	#define ARM_XHCI0_BASE	MEM_PCIE_RANGE_START_VIRTUAL
 	#define ARM_XHCI0_END	(ARM_XHCI0_BASE + 0x0FFF)
-
-	// (Onyx) the SoC's own controller, the USB-C socket: device #1 beside the VL805
-	#define ARM_XHCI1_BASE	(ARM_IO_BASE + 0x9C0000)
-	#define ARM_XHCI1_END	(ARM_XHCI1_BASE + 0xFFFFF)
 #endif
 #else
 	#define ARM_XHCI0_BASE	0x1F00200000UL

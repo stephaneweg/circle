@@ -544,57 +544,50 @@ boolean CXHCIEndpoint::EnqueueTRB (u32 nControl, u32 nStatus, u32 nParameter1, u
 
 TXHCIInputContext *CXHCIEndpoint::GetInputContextSetMaxPacketSize (void)
 {
-	const unsigned nStride = m_pXHCIDevice->GetContextSize ();	// (Onyx) the controller's
-	const size_t nSize = XHCI_INPUT_CONTEXT_SIZE (nStride);
-
 	assert (m_pInputContextBuffer == 0);
-	m_pInputContextBuffer = new u8[nSize + XHCI_PAGE_SIZE-1];
+	m_pInputContextBuffer = new u8[sizeof (TXHCIInputContext) + XHCI_PAGE_SIZE-1];
 	assert (m_pInputContextBuffer != 0);
 
 	TXHCIInputContext *pInputContext =
 		(TXHCIInputContext *) XHCI_ALIGN_PTR (m_pInputContextBuffer, XHCI_PAGE_SIZE);
 
 	assert (m_pDevice != 0);
-	memset (pInputContext, 0, nStride);
-	memcpy (XHCI_INPUT_DEVICE (pInputContext, nStride), m_pDevice->GetDeviceContext (),
-		XHCI_DEVICE_CONTEXT_SIZE (nStride));
+	memset (&pInputContext->Control, 0, sizeof pInputContext->Control);
+	memcpy (&pInputContext->Device, m_pDevice->GetDeviceContext (),
+		sizeof pInputContext->Device);
 
 	// set input control context
-	XHCI_INPUT_CONTROL (pInputContext)->AddContextFlags = 2;	// set A1
-	XHCI_INPUT_CONTROL (pInputContext)->DropContextFlags = 2;	// set D1
+	pInputContext->Control.AddContextFlags = 2;		// set A1
+	pInputContext->Control.DropContextFlags = 2;		// set D1
 
 	// set EP context
-	TXHCIEndpointContext *pEPContext = XHCI_INPUT_ENDPOINT (pInputContext, nStride, 0);
+	TXHCIEndpointContext *pEPContext = &pInputContext->Device.Endpoint[0];
 
 	pEPContext->MaxPacketSize = m_usMaxPacketSize;
 
-	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, nSize);
+	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, sizeof *pInputContext);
 
 	return pInputContext;
 }
 
 TXHCIInputContext *CXHCIEndpoint::GetInputContextConfigureEndpoint (void)
 {
-	const unsigned nStride = m_pXHCIDevice->GetContextSize ();	// (Onyx) the controller's
-	const size_t nSize = XHCI_INPUT_CONTEXT_SIZE (nStride);
-
 	assert (m_pInputContextBuffer == 0);
-	m_pInputContextBuffer = new u8[nSize + XHCI_PAGE_SIZE-1];
+	m_pInputContextBuffer = new u8[sizeof (TXHCIInputContext) + XHCI_PAGE_SIZE-1];
 	assert (m_pInputContextBuffer != 0);
 
 	TXHCIInputContext *pInputContext =
 		(TXHCIInputContext *) XHCI_ALIGN_PTR (m_pInputContextBuffer, XHCI_PAGE_SIZE);
 
-	memset (pInputContext, 0, nSize);
+	memset (pInputContext, 0, sizeof *pInputContext);
 
 	// set input control context
 	assert (XHCI_IS_ENDPOINTID (m_uchEndpointID));
-	XHCI_INPUT_CONTROL (pInputContext)->AddContextFlags = 1 << m_uchEndpointID;
-	XHCI_INPUT_CONTROL (pInputContext)->DropContextFlags = 1 << m_uchEndpointID;
+	pInputContext->Control.AddContextFlags = 1 << m_uchEndpointID;
+	pInputContext->Control.DropContextFlags = 1 << m_uchEndpointID;
 
 	// set EP context
-	TXHCIEndpointContext *pEPContext =
-		XHCI_INPUT_ENDPOINT (pInputContext, nStride, m_uchEndpointID-1);
+	TXHCIEndpointContext *pEPContext = &pInputContext->Device.Endpoint[m_uchEndpointID-1];
 
 	assert (m_pTransferRing != 0);
 	pEPContext->TRDequeuePointer =
@@ -632,7 +625,7 @@ TXHCIInputContext *CXHCIEndpoint::GetInputContextConfigureEndpoint (void)
 		break;
 	}
 
-	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, nSize);
+	CleanAndInvalidateDataCacheRange ((uintptr) pInputContext, sizeof *pInputContext);
 
 	return pInputContext;
 }

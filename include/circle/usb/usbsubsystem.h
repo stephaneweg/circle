@@ -22,9 +22,7 @@
 
 #include <circle/interrupt.h>
 #include <circle/timer.h>
-#if RASPPI >= 5
 #include <circle/southbridge.h>
-#endif
 #include <circle/usb/usb.h>
 #include <circle/usb/usbendpoint.h>
 #include <circle/usb/usbcontroller.h>
@@ -32,19 +30,12 @@
 #include <circle/usb/xhcidevice.h>
 #include <circle/types.h>
 
-class CUSBSubSystem : public CUSBController	/// USB sub-system of the Raspberry Pi 5 (Onyx: and 4)
+class CUSBSubSystem : public CUSBController	/// USB sub-system of the Raspberry Pi 5
 {
 public:
 	CUSBSubSystem (CInterruptSystem *pInterruptSystem, CTimer *pTimer,
 		       boolean bPlugAndPlay = FALSE);
 	~CUSBSubSystem (void);
-
-#if RASPPI == 4
-	/// \brief (Onyx) Drive the SoC's own xHCI controller too, the USB-C socket's (device #1)
-	/// \note Before Initialize (). It needs config.txt "otg_mode=1" (the firmware routes the
-	///	  socket to it); without it, its registers must not be touched.
-	void EnableInternalController (void);
-#endif
 
 	boolean Initialize (boolean bScanDevices = TRUE) override;
 
@@ -72,13 +63,7 @@ private:
 private:
 	boolean m_bPlugAndPlay;
 
-#if RASPPI >= 5
 	CSouthbridge m_Southbridge;
-#else
-	CInterruptSystem *m_pInterruptSystem;	// (Onyx) the Pi 4's device #1 made at Initialize ()
-	CTimer *m_pTimer;
-	boolean m_bInternalController;
-#endif
 
 	CXHCISharedMemAllocator m_SharedMemAllocator;
 
