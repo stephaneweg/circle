@@ -91,7 +91,13 @@ CDWHCIDevice::CDWHCIDevice (CInterruptSystem *pInterruptSystem, CTimer *pTimer, 
 	m_CompletionQueue (DWHCI_MAX_CHANNELS*2),
 	m_MPHI (pInterruptSystem),
 #endif
-	m_bShutdown (FALSE)
+	m_bShutdown (FALSE),
+#if RASPPI >= 4
+	m_bPeriodicNextFrame (TRUE),
+#else
+	m_bPeriodicNextFrame (FALSE),
+#endif
+	m_nOverrunStreak (0)
 {
 	assert (m_pInterruptSystem != 0);
 	assert (m_pTimer != 0);
@@ -389,7 +395,55 @@ void CDWHCIDevice::CancelDeviceTransactions (CUSBDevice *pUSBDevice)
 #ifdef USE_USB_SOF_INTR
 	m_TransactionQueue.FlushDevice (pUSBDevice);
 #endif
+
+	// (Onyx) The device's asynchronous requests still on a channel complete when their channel
+	// halts -- from the interrupt, and the caller deletes the device and its drivers next: their
+	// completion only frees them now; the driver is not called (a HID driver touched its deleted
+	// self there -- a kernel panic when the PocketTerm35's keyboard left the USB-C socket -- and
+	// submitted its next request).
+	unsigned nWaitMask = 0;
+	EnterCritical (IRQ_LEVEL);
+	for (unsigned nChannel = 0; nChannel < m_nChannels; nChannel++)
+	{
+		CDWHCITransferStageData *pStageData = m_pStageData[nChannel];
+		if (pStageData == 0)
+		{
+			continue;
+		}
+
+		CUSBRequest *pURB = pStageData->GetURB ();
+		if (   pURB == 0
+		    || pURB->GetCompletionRoutine () == CompletionRoutine	// a blocking one: its waiter
+		    || pURB->GetEndpoint ()->GetDevice () != pUSBDevice)
+		{
+			continue;
+		}
+
+		pURB->SetCompletionRoutine (DiscardedCompletion, 0, 0);
+		nWaitMask |= 1 << nChannel;
+	}
 	AbortActiveChannels ();
+	LeaveCritical ();
+
+	// their channels freed before the device goes (at once when the port is disabled)
+	for (unsigned nWaitUs = 0; nWaitMask != 0 && nWaitUs < 100000; nWaitUs += 100)
+	{
+		m_pTimer->usDelay (100);
+		DataMemBarrier ();
+
+		for (unsigned nChannel = 0; nChannel < m_nChannels; nChannel++)
+		{
+			if (m_pStageData[nChannel] == 0)
+			{
+				nWaitMask &= ~(1 << nChannel);
+			}
+		}
+	}
+}
+
+void CDWHCIDevice::DiscardedCompletion (CUSBRequest *pURB, void *pParam, void *pContext)
+{
+	delete pURB;		// (Onyx) its device and driver are gone
 }
 
 void CDWHCIDevice::AbortActiveChannels (void)
@@ -1123,7 +1177,15 @@ void CDWHCIDevice::StartChannel (CDWHCITransferStageData *pStageData)
 		pFrameScheduler->WaitForFrame ();
 #endif
 
-		if (pFrameScheduler->IsOddFrame ())
+		boolean bOdd = pFrameScheduler->IsOddFrame ();
+		if (   m_bPeriodicNextFrame			// (Onyx) the next frame
+		    && pStageData->IsPeriodic ()
+		    && !pStageData->IsSplit ())
+		{
+			bOdd = !bOdd;
+		}
+
+		if (bOdd)
 		{
 			Character.Or (DWHCI_HOST_CHAN_CHARACTER_PER_ODD_FRAME);
 		}
@@ -1236,6 +1298,21 @@ void CDWHCIDevice::ChannelInterruptHandler (unsigned nChannel)
 	{
 	case StageStateNoSplitTransfer:
 		nStatus = pStageData->GetTransactionStatus ();
+		if (pStageData->IsPeriodic ())		// (Onyx) a run of frame overruns: the other frame
+		{
+			if (nStatus & DWHCI_HOST_CHAN_INT_FRAME_OVERRUN)
+			{
+				if (++m_nOverrunStreak >= 16)
+				{
+					m_nOverrunStreak = 0;
+					m_bPeriodicNextFrame = !m_bPeriodicNextFrame;
+				}
+			}
+			else
+			{
+				m_nOverrunStreak = 0;
+			}
+		}
 		if (   (nStatus & DWHCI_HOST_CHAN_INT_XACT_ERROR)
 		    && pURB->GetEndpoint ()->GetType () == EndpointTypeBulk
 		    && pStageData->IsRetryOK ())

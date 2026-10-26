@@ -93,6 +93,7 @@ private:
 	boolean TransferStage (CUSBRequest *pURB, boolean bIn, boolean bStatusStage,
 			       unsigned nTimeoutMs = USB_TIMEOUT_NONE);
 	static void CompletionRoutine (CUSBRequest *pURB, void *pParam, void *pContext);
+	static void DiscardedCompletion (CUSBRequest *pURB, void *pParam, void *pContext);	// (Onyx)
 
 	boolean TransferStageAsync (CUSBRequest *pURB, boolean bIn, boolean bStatusStage,
 				    unsigned nTimeoutMs = USB_TIMEOUT_NONE);
@@ -177,6 +178,13 @@ private:
 #endif
 
 	volatile boolean m_bShutdown;			// USB driver will shutdown
+
+	// (Onyx) The periodic transfers of a device on the root port itself (no split) scheduled
+	// for the next frame, not the current one: on the Pi 4's USB-C socket (a full-speed root
+	// port) the current frame ended in a frame overrun every time. Switched after a run of
+	// frame overruns either way.
+	volatile boolean m_bPeriodicNextFrame;
+	volatile unsigned m_nOverrunStreak;
 };
 
 #endif

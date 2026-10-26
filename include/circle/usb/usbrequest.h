@@ -59,6 +59,7 @@ public:
 
 	void SetCompletionRoutine (TURBCompletionRoutine *pRoutine, void *pParam, void *pContext);
 	void CallCompletionRoutine (void);
+	TURBCompletionRoutine *GetCompletionRoutine (void) const	{ return m_pCompletionRoutine; }	// (Onyx)
 
 	// do not retry if request cannot be served immediately (for Bulk in only)
 	void SetCompleteOnNAK (void);
