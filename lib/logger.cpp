@@ -36,6 +36,7 @@ struct TLogEvent
 	time_t		Time;
 	unsigned	nHundredthTime;
 	int		nTimeZone;			// minutes diff to UTC
+	u64		nUptimeMicros;			// Onyx: since boot (the system timer)
 };
 
 CLogger *CLogger::s_pThis = 0;
@@ -363,6 +364,7 @@ void CLogger::WriteEvent (const char *pSource, TLogSeverity Severity, const char
 	}
 
 	pEvent->Severity = Severity;
+	pEvent->nUptimeMicros = CTimer::GetClockTicks64 ();	// (Onyx: CLOCKHZ = 1 MHz)
 
 	strncpy (pEvent->Source, pSource, LOG_MAX_SOURCE);
 	pEvent->Source[LOG_MAX_SOURCE-1] = '\0';
@@ -422,6 +424,14 @@ void CLogger::WriteEvent (const char *pSource, TLogSeverity Severity, const char
 boolean CLogger::ReadEvent (TLogSeverity *pSeverity, char *pSource, char *pMessage,
 			    time_t *pTime, unsigned *pHundredthTime, int *pTimeZone)
 {
+	u64 nUptimeMicros;
+	return ReadEvent (pSeverity, pSource, pMessage, pTime, pHundredthTime, pTimeZone, &nUptimeMicros);
+}
+
+boolean CLogger::ReadEvent (TLogSeverity *pSeverity, char *pSource, char *pMessage,
+			    time_t *pTime, unsigned *pHundredthTime, int *pTimeZone,
+			    u64 *pUptimeMicros)
+{
 	m_EventSpinLock.Acquire ();
 
 	if (m_nEventInPtr == m_nEventOutPtr)
@@ -446,6 +456,7 @@ boolean CLogger::ReadEvent (TLogSeverity *pSeverity, char *pSource, char *pMessa
 	*pTime = pEvent->Time;
 	*pHundredthTime = pEvent->nHundredthTime;
 	*pTimeZone = pEvent->nTimeZone;
+	*pUptimeMicros = pEvent->nUptimeMicros;
 
 	delete pEvent;
 

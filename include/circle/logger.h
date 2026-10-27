@@ -29,7 +29,7 @@
 
 #define LOG_MAX_SOURCE		50
 #define LOG_MAX_MESSAGE		200
-#define LOG_QUEUE_SIZE		50
+#define LOG_QUEUE_SIZE		1024		// Onyx: 50 upstream (a whole boot kept for kmsg)
 
 #define LOGGER_BUFSIZE		0x4000		///< Size of the text ring buffer
 
@@ -98,6 +98,11 @@ public:
 	/// \return FALSE if event is not available
 	boolean ReadEvent (TLogSeverity *pSeverity, char *pSource, char *pMessage,
 			   time_t *pTime, unsigned *pHundredthTime, int *pTimeZone);
+
+	/// \brief Onyx: the same, with the event's time since boot (microseconds, the system timer)
+	boolean ReadEvent (TLogSeverity *pSeverity, char *pSource, char *pMessage,
+			   time_t *pTime, unsigned *pHundredthTime, int *pTimeZone,
+			   u64 *pUptimeMicros);
 
 	/// \brief Register handler which is called, when a log event arrives
 	void RegisterEventNotificationHandler (TLogEventNotificationHandler *pHandler);
